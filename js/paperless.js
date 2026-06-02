@@ -413,10 +413,40 @@ function paperlessBindDialog($root) {
     // which the native <select multiple> single-click behavior otherwise blocks.
     $root.find('.paperless-f-tags').on('mousedown', 'option', function (e) {
         e.preventDefault();
+        var sel = this.parentNode;
+        var keep = sel ? sel.scrollTop : 0;
         this.selected = !this.selected;
-        if (this.parentNode) {
-            this.parentNode.focus();
-            $(this.parentNode).trigger('change');
+        if (sel) {
+            var $sel = $(sel);
+            // Two native <select multiple> quirks scroll the list away from the
+            // click: (1) mutating option.selected asynchronously scrolls the
+            // FIRST selected option into view a few frames later (independent of
+            // focus); (2) holding the button and dragging over options
+            // auto-scrolls (native range-select). Both are unwanted here — we
+            // toggle on click, not drag-select. Pin the scroll and revert those
+            // auto-scrolls until the button is released (covers the drag) plus a
+            // short tail (covers the async post-toggle scroll). Release early on
+            // a real wheel/keydown so a deliberate scroll is never fought.
+            // Only engaged for option presses — a scrollbar press targets the
+            // <select>, not an <option>, so the scrollbar still scrolls normally.
+            var release = function () {
+                $sel.off('.ppin');
+                $(document).off('.ppin');
+            };
+            release();
+            $sel.on('scroll.ppin', function () {
+                if (Math.abs(sel.scrollTop - keep) > 1) {
+                    sel.scrollTop = keep;
+                }
+            });
+            $sel.on('wheel.ppin keydown.ppin', release);
+            $(document).on('mouseup.ppin', function () {
+                $(document).off('mouseup.ppin');
+                window.setTimeout(release, 300);
+            });
+            sel.focus({ preventScroll: true });
+            sel.scrollTop = keep;
+            $sel.trigger('change');
         }
         return false;
     });
