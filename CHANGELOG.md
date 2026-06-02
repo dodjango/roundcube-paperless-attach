@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to semantic versioning.
 
+## [1.1.0](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.0.0...v1.1.0) (2026-06-02)
+
+
+### Features
+
+* **picker:** show a loading indicator while filter lists load ([929f85b](https://github.com/dodjango/roundcube-paperless-attach/commit/929f85bf082f650030a8aa2039abab18720a2944))
+* **picker:** show selected-tag count in the Tags filter ([60519b4](https://github.com/dodjango/roundcube-paperless-attach/commit/60519b436024d0e3e948b35fcad68bd16325851f))
+
+
+### Bug Fixes
+
+* **picker:** keep Tags list scroll position stable on click and drag ([c73c310](https://github.com/dodjango/roundcube-paperless-attach/commit/c73c31046fcbb699ee2fa6bfbf952a6efee85d29))
+
+
+### Documentation
+
+* add CLAUDE.md (architecture, conventions, gotchas) ([91aace5](https://github.com/dodjango/roundcube-paperless-attach/commit/91aace596fd7567c17aee3c82ed465786d2bdb1c))
+
 ## [1.0.0] - 2026-06-01
 
 Initial public release.
