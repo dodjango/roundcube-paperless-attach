@@ -41,6 +41,7 @@ $labels['filter_doctype']       = 'Document type';
 $labels['filter_date_from']     = 'From';
 $labels['filter_date_to']       = 'To';
 $labels['filter_reset']         = 'Reset filters';
+$labels['filter_loading']       = 'Loading filters…';
 $labels['tags_selected_count']  = '%d selected';
 
 // Result list

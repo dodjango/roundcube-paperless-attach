@@ -80,6 +80,8 @@ function paperlessNewState() {
         attachedIds:  {},     // ids confirmed attached THIS dialog session (client duplicate guard)
         lastCriteria: null,   // last search criteria (for retry)
         filtersLoaded: false, // lazy-load guard for dropdown option lists
+        filtersPending: 0,    // dropdown lookups still in flight (drives the loading indicator)
+        filtersLoadingTimer: null, // safety timeout id that hides a stuck loading indicator
         filterCache:  {       // cached, fully-paginated option lists per session
             tags:           null,
             correspondents: null,
@@ -340,6 +342,10 @@ function paperlessBuildDialog() {
 
     var $filterRow = $(
         '<div class="paperless-filter-row" id="paperless-filter-row" hidden>' +
+        '  <div class="paperless-filter-loading" role="status" hidden>' +
+        '    <span class="paperless-spinner" aria-hidden="true"></span>' +
+        '    <span class="paperless-filter-loading-label"></span>' +
+        '  </div>' +
         '  <label class="paperless-filter paperless-filter-tags">' +
         '    <span class="paperless-filter-label"></span>' +
         '    <select multiple class="paperless-f-tags"></select>' +
@@ -366,6 +372,7 @@ function paperlessBuildDialog() {
         '  </span>' +
         '</div>'
     );
+    $filterRow.find('.paperless-filter-loading-label').text(t('filter_loading'));
     $filterRow.find('.paperless-filter-tags .paperless-filter-label')
         .text(t('filter_tags'))
         .append($('<span class="paperless-filter-count paperless-f-tags-count" aria-live="polite"></span>'));
@@ -495,24 +502,50 @@ function paperlessLoadFilters() {
     }
     paperlessState.filtersLoaded = true;
 
-    paperlessLoadOneFilter('tags', 'plugin.paperless.tags', '.paperless-f-tags');
-    paperlessLoadOneFilter('correspondents', 'plugin.paperless.correspondents', '.paperless-f-corr');
-    paperlessLoadOneFilter('doctypes', 'plugin.paperless.doctypes', '.paperless-f-doctype');
+    // Count the lookups that actually hit the network so the loading indicator
+    // reflects real in-flight work (cache hits fill synchronously).
+    var pending = 0;
+    if (paperlessLoadOneFilter('tags', 'plugin.paperless.tags', '.paperless-f-tags')) { pending++; }
+    if (paperlessLoadOneFilter('correspondents', 'plugin.paperless.correspondents', '.paperless-f-corr')) { pending++; }
+    if (paperlessLoadOneFilter('doctypes', 'plugin.paperless.doctypes', '.paperless-f-doctype')) { pending++; }
+
+    paperlessState.filtersPending = pending;
+    if (pending > 0) {
+        paperlessState.$dialog.find('.paperless-filter-loading').prop('hidden', false);
+        // Safety net: never leave the indicator spinning if a lookup channel
+        // never returns (network/server error on a filter request).
+        paperlessState.filtersLoadingTimer = window.setTimeout(paperlessHideFilterLoading, 15000);
+    }
 }
 
+// Returns true if this lookup issued a network request (cache miss), false if
+// it was served synchronously from the per-session cache.
 function paperlessLoadOneFilter(cacheKey, action, selector) {
     var $sel = paperlessState.$dialog.find(selector);
 
     // Serve from cache if a prior expand already populated it.
     if (paperlessState.filterCache[cacheKey]) {
         paperlessFillSelect($sel, paperlessState.filterCache[cacheKey]);
-        return;
+        return false;
     }
 
     $sel.prop('disabled', true).addClass('paperless-loading');
 
     // Each lookup is its own round-trip; the response handler routes by action.
     rcmail.http_post(action, {}, false);
+    return true;
+}
+
+// Hide the filter loading indicator and clear its safety timeout (idempotent).
+function paperlessHideFilterLoading() {
+    if (!paperlessState || !paperlessState.$dialog) {
+        return;
+    }
+    paperlessState.$dialog.find('.paperless-filter-loading').prop('hidden', true);
+    if (paperlessState.filtersLoadingTimer) {
+        window.clearTimeout(paperlessState.filtersLoadingTimer);
+        paperlessState.filtersLoadingTimer = null;
+    }
 }
 
 function paperlessFillSelect($sel, items) {
@@ -636,6 +669,14 @@ function paperlessRouteLookup(kind, items) {
     }
     paperlessState.filterCache[kind] = items;
     paperlessFillSelect(paperlessState.$dialog.find(selector), items);
+
+    // One lookup landed — hide the loading indicator once the last one is in.
+    if (paperlessState.filtersPending > 0) {
+        paperlessState.filtersPending--;
+        if (paperlessState.filtersPending === 0) {
+            paperlessHideFilterLoading();
+        }
+    }
 }
 
 // -------------------------------------------------------------------------
