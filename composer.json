@@ -1,0 +1,22 @@
+{
+    "name": "dodjango/paperless_attach",
+    "type": "roundcube-plugin",
+    "description": "Attach documents from a Paperless-ngx instance directly into the Roundcube compose flow (Elastic skin).",
+    "license": "GPL-3.0-or-later",
+    "keywords": ["roundcube", "plugin", "paperless", "paperless-ngx", "attachment", "self-hosted"],
+    "homepage": "https://github.com/dodjango/roundcube-paperless-attach",
+    "authors": [
+        {
+            "name": "dodjango",
+            "homepage": "https://github.com/dodjango"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/dodjango/roundcube-paperless-attach/issues",
+        "source": "https://github.com/dodjango/roundcube-paperless-attach"
+    },
+    "require": {
+        "php": ">=7.4",
+        "roundcube/plugin-installer": ">=0.3.1"
+    }
+}

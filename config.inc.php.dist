@@ -1,0 +1,20 @@
+<?php
+
+/**
+ * Paperless Attach — plugin configuration defaults.
+ *
+ * Copy this file to `config.inc.php` (or provide the value via the Roundcube
+ * config bind-mount) and adjust as needed.
+ */
+
+// -----------------------------------------------------------------------------
+// Paperless base URL — SERVER-FIXED.
+//
+// This URL is fixed server-side on purpose. It is NEVER accepted from the
+// browser and there is intentionally no per-user URL field (SSRF guard). The
+// only per-user setting is the API token, which is stored encrypted via
+// Roundcube's $rcmail->encrypt() (des_key).
+//
+// Default targets the Paperless service on the internal `eplamat` docker network.
+// -----------------------------------------------------------------------------
+$config['paperless_url'] = 'http://paperless-webserver:8000';

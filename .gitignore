@@ -1,0 +1,13 @@
+# Local plugin config (copy of config.inc.php.dist) — never commit a real config
+config.inc.php
+
+# Composer
+/vendor/
+composer.lock
+
+# Editor / OS cruft
+*.swp
+*~
+.DS_Store
+.idea/
+.vscode/

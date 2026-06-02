@@ -1,0 +1,483 @@
+/**
+ * Paperless Attach — Elastic skin styles.
+ *
+ * Phase 1: inline result styling for the Settings "Test connection" button,
+ * plus the "configured" token hint.
+ */
+
+.paperless-test-result {
+    display: inline-block;
+    margin-inline-start: 0.5em;
+    font-weight: bold;
+    vertical-align: middle;
+}
+
+.paperless-test-result.paperless-ok {
+    color: #1a7f37; /* green — success */
+}
+
+.paperless-test-result.paperless-fail {
+    color: #c0392b; /* red — failure */
+}
+
+.paperless-configured {
+    display: inline-block;
+    margin-inline-start: 0.5em;
+    color: #1a7f37;
+    font-style: italic;
+}
+
+/* =====================================================================
+ * Phase 2 — Paperless picker dialog (Elastic).
+ *
+ * LAYOUT GLUE ONLY. Colors, radii, spacing tokens come from Elastic CSS
+ * custom properties (var(--color-*)). No brand/hex color literals below.
+ * ===================================================================== */
+
+/* Horizontal gap to the adjacent native Datei / vCard buttons. Elastic gives
+ * upload-form buttons only `margin-bottom: .25rem` and relies on inline
+ * whitespace for side-by-side spacing; our button is appended via jQuery
+ * (no whitespace text node), so without this it butts directly against the
+ * previous button. Match Elastic's .25rem vertical rhythm with a slightly
+ * larger, clearly readable horizontal gap. */
+button.paperless-attach {
+    margin-inline-start: 0.5rem;
+}
+
+/* The Paperless-ngx logo mark as an inline data: URI, defined once and reused
+ * by the compose-button and settings-section icons below. Inlined (not a .svg
+ * file) because the Roundcube image's web server 404s standalone .svg files in
+ * the plugin dir. White-filled so it works as an alpha/luminance mask. */
+:root {
+    --paperless-leaf: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20900%20900'%3E%3Cg%20transform='matrix(10.638298,0,0,10.638298,106.38298,-206.38301)'%3E%3Cg%20transform='matrix(0.10341565,0,0,0.10341565,-11.43874,18.048418)'%3E%3Cpath%20fill='%23ffffff'%20d='M%20231,798%20C%20227,779%20219,741%20218,741%2049,640%2069,465%20125,365%20c%2012,126%20235,213%20105,367%20-1,2%206,26%2012,48%2026,-44%2065,-97%2063,-102%20C%20145,288%20645,258%20749,16%20c%2047,234%20-24,596%20-426,688%20-2,1%20-73,126%20-76,127%200,-2%20-30,-1%20-26,-11%202,-6%206,-14%2010,-22%20z%20M%20330,625%20C%20267,476%20452,312%20544,271%20356,439%20324,564%20330,625%20Z%20m%20-104,79%20c%2051,-59%20-9,-160%20-45,-193%2061,105%2057,166%2045,193%20z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Attachments-widget button glyph: the Paperless-ngx logo mark, painted in the
+ * button's text color via a CSS mask so it matches the monochrome native
+ * Datei/vCard icons in both light and dark mode. The high-specificity selector
+ * (button.btn.attach.paperless-attach) is required to override Elastic's
+ * `.btn.attach:before` paperclip glyph (\f0c6); content:"" suppresses that glyph.
+ * The mark is inlined as a data: URI rather than a separate .svg because the
+ * Roundcube image's web server does not serve standalone .svg files from the
+ * plugin dir (they 404), which would leave the mask empty.
+ * display:inline-block is !important because an Elastic rule otherwise forces
+ * the ::before to display:inline (out-specifying ours for that one property),
+ * which collapses the box to zero size and hides the masked icon. */
+button.btn.attach.paperless-attach::before {
+    content: "";
+    display: inline-block !important;
+    width: 1.25em;
+    height: 1.25em;
+    margin-inline-end: 0.4rem;
+    vertical-align: -0.27em;
+    background-color: currentColor;
+    -webkit-mask: var(--paperless-leaf) center / contain no-repeat;
+    mask: var(--paperless-leaf) center / contain no-repeat;
+}
+
+/* Settings → Paperless section icon: replace Elastic's default gear (\f013) with
+ * the Paperless-ngx mark, same masked-currentColor technique. The row is
+ * `tr.paperless` (Roundcube derives the class from the section id) and the icon
+ * lives on `td.section::before`. content:"" drops the gear glyph; display is kept
+ * block (matching sibling section icons) but forced so it can't collapse. */
+.listing.iconized tr.paperless > td.section::before {
+    content: "" !important;
+    display: block !important;
+    width: 1.18em;
+    height: 1.25em;
+    background-color: currentColor;
+    -webkit-mask: var(--paperless-leaf) center / contain no-repeat;
+    mask: var(--paperless-leaf) center / contain no-repeat;
+}
+
+/* Dialog shell: three stacked regions; only the middle one scrolls. */
+.paperless-dialog .ui-dialog-content,
+.paperless-picker {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.paperless-picker {
+    gap: 0.5rem;
+}
+
+/* Region A — search + filters (fixed top). */
+.paperless-region-a {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.paperless-searchbox {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.paperless-search-input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.paperless-search-icon::before {
+    font-family: 'Icons';
+    content: "\f002"; /* fa-search */
+    color: var(--color-font-secondary);
+}
+
+.paperless-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: none;
+    border: 0;
+    /* Symmetric padding + radius so the hover/focus background stays balanced
+       and the chevron + "Filter" label remain centered and fully visible
+       (zero horizontal padding previously clipped/left-hugged the label). */
+    padding: 0.25rem 0.5rem;
+    margin: 0;
+    line-height: 1.3;
+    white-space: nowrap;
+    cursor: pointer;
+    color: var(--color-link);
+    align-self: flex-start;
+    border-radius: var(--border-radius, 4px);
+}
+
+.paperless-filter-toggle:hover .paperless-filter-toggle-label {
+    text-decoration: underline;
+}
+
+.paperless-chevron {
+    display: inline-flex;
+    align-items: center;
+}
+
+.paperless-chevron::before {
+    /* Use a plain Unicode triangle (NOT the Roundcube 'Icons' font, whose
+       codepoints differ from FontAwesome and left this glyph empty). */
+    font-family: inherit;
+    content: "\25B8"; /* ▸ */
+    font-size: 0.9em;
+    line-height: 1;
+    display: inline-block;
+    transition: transform 0.15s ease;
+}
+
+.paperless-filters-open .paperless-chevron::before {
+    transform: rotate(90deg);
+}
+
+.paperless-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    /* Top-align so every label sits on one line and the single-row controls
+       align on the line below it. (flex-end bottom-aligned mismatched-height
+       controls — select 20px / date 22px / button 30px — leaving ragged tops.) */
+    align-items: flex-start;
+    gap: 0.5rem;
+}
+
+.paperless-filter {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+/* Uniform height for the single-row controls + reset button so they line up
+   exactly. The Tags <select multiple> is intentionally taller and excluded. */
+.paperless-filter-row .paperless-f-corr,
+.paperless-filter-row .paperless-f-doctype,
+.paperless-filter-row .paperless-f-from,
+.paperless-filter-row .paperless-f-to,
+.paperless-filter-row .paperless-filter-reset {
+    height: 32px;
+    box-sizing: border-box;
+}
+
+.paperless-filter-label {
+    font-size: 0.85em;
+    color: var(--color-font-secondary);
+}
+
+.paperless-filter select.paperless-loading {
+    opacity: 0.6;
+}
+
+/* Reset button sits in the flex-end filter row beside the date inputs. Match
+   its box-height and vertical alignment to the adjacent inputs so it lines up
+   on the row's baseline, and center its label. */
+.paperless-filter-reset {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: calc(1.5em + 0.5rem + 2px); /* ~ Elastic input: line + padding + border */
+    padding-block: 0;
+    padding-inline: 0.6rem;
+    line-height: normal;
+    white-space: nowrap;
+    align-self: flex-end;
+}
+
+/* Region B — scrolling result list / state host. */
+.paperless-region-b {
+    flex: 1 1 auto;
+    overflow: auto;
+    min-height: 0;
+}
+
+.paperless-placeholder {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    height: 100%;
+    color: var(--color-font-secondary);
+    text-align: center;
+}
+
+.paperless-placeholder-icon::before {
+    font-family: 'Icons';
+    content: "\f002"; /* fa-search */
+    font-size: 2rem;
+    opacity: 0.5;
+}
+
+.paperless-spinner {
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-main);
+    border-radius: 50%;
+    animation: paperless-spin 0.7s linear infinite;
+}
+
+@keyframes paperless-spin {
+    to { transform: rotate(360deg); }
+}
+
+.paperless-result-count {
+    padding: 0.25rem 0.25rem 0.5rem;
+    font-size: 0.85em;
+}
+
+.paperless-result-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+/* Result row: checkbox · thumbnail · text column. */
+.paperless-result {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.4rem;
+    border-bottom: 1px solid var(--color-border);
+    border-inline-start: 3px solid transparent;
+    cursor: pointer;
+    min-height: 44px;
+}
+
+.paperless-result:hover {
+    background: var(--color-list-selected-background);
+}
+
+.paperless-result.paperless-selected {
+    background: var(--color-list-selected-background);
+    border-inline-start-color: var(--color-main);
+}
+
+.paperless-row-cb {
+    flex: 0 0 auto;
+}
+
+/* Fixed thumbnail box (portrait-document ratio). */
+.paperless-thumb {
+    flex: 0 0 auto;
+    width: 48px;
+    height: 64px;
+    object-fit: cover;
+    border: 1px solid var(--color-border);
+    background: var(--color-list-selected-background);
+}
+
+.paperless-thumb-fallback {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.paperless-thumb-fallback::before {
+    font-family: 'Icons';
+    content: "\f1c1"; /* fa-file-pdf */
+    font-size: 1.5rem;
+    color: var(--color-font-secondary);
+}
+
+.paperless-rowtext {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+}
+
+.paperless-title {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+    margin: 0;
+}
+
+.paperless-rowmeta {
+    font-size: 0.85em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.paperless-load-more-wrap {
+    text-align: center;
+    padding: 0.6rem 0;
+}
+
+.paperless-load-more.paperless-loading {
+    opacity: 0.6;
+}
+
+/* State banners reuse Elastic .alert-* classes for color. */
+.paperless-region-b .alert {
+    margin: 0.5rem;
+}
+
+.paperless-settings-link,
+.paperless-retry-btn {
+    display: inline-block;
+    margin-top: 0.4rem;
+}
+
+/* Region C — fixed footer. */
+.paperless-region-c {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--color-border);
+}
+
+.paperless-count {
+    color: var(--color-font-secondary);
+}
+
+.paperless-footer-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+/*
+ * Attach button busy/spinner state (Phase 3). Shown while an attach request is
+ * in flight (the .paperless-attaching class is toggled from JS). Layout/animation
+ * only — colors come from Elastic tokens, reusing the @keyframes paperless-spin
+ * defined above. No hex/rgb literals.
+ */
+.paperless-dialog .paperless-attach-btn.paperless-attaching {
+    position: relative;
+    cursor: progress;
+    opacity: 0.85;
+    padding-inline-start: 2rem;
+}
+
+.paperless-dialog .paperless-attach-btn.paperless-attaching::before {
+    content: "";
+    position: absolute;
+    inset-inline-start: 0.6rem;
+    top: 50%;
+    width: 1rem;
+    height: 1rem;
+    margin-top: -0.5rem;
+    border: 2px solid var(--color-border);
+    border-top-color: var(--color-main);
+    border-radius: 50%;
+    animation: paperless-spin 0.7s linear infinite;
+}
+
+/* Responsive: stack filters on narrow dialogs. */
+@media (max-width: 600px) {
+    .paperless-filter-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .paperless-thumb {
+        width: 40px;
+        height: 54px;
+    }
+}
+
+/*
+ * Phase 4 — disabled result-row states + per-item batch summary.
+ * Colors come exclusively from Elastic design tokens (var(--color-*)); no new
+ * brand/hex literals. These are the first-line UX guards; the authoritative
+ * oversize + duplicate enforcement is server-side.
+ */
+
+/* Oversize / already-attached rows: muted, not selectable. */
+.paperless-result.paperless-oversize,
+.paperless-result.paperless-attached-already {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.paperless-result.paperless-oversize .paperless-row-cb,
+.paperless-result.paperless-attached-already .paperless-row-cb {
+    cursor: not-allowed;
+}
+
+/* Per-row marker tag (e.g. "zu groß" / "bereits angehängt"). */
+.paperless-row-marker {
+    display: inline-block;
+    margin-inline-start: 0.4rem;
+    padding: 0 0.4rem;
+    border: 1px solid var(--color-border);
+    border-radius: 3px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--color-font-secondary);
+    white-space: nowrap;
+}
+
+.paperless-row-marker-oversize {
+    border-color: var(--color-warning, var(--color-border));
+    color: var(--color-warning, var(--color-font-secondary));
+}
+
+/* Per-item batch summary block, prepended into Region B after an attach. */
+.paperless-attach-summary {
+    margin-bottom: 0.5rem;
+}
+
+.paperless-attach-summary-head {
+    margin: 0 0 0.25rem;
+    font-weight: bold;
+}
+
+.paperless-attach-summary-list {
+    margin: 0;
+    padding-inline-start: 1.2rem;
+    color: var(--color-font-secondary);
+    font-size: 0.9rem;
+}
+
+.paperless-attach-summary-list li {
+    margin: 0.1rem 0;
+}

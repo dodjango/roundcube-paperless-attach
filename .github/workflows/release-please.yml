@@ -1,0 +1,25 @@
+name: release-please
+
+# Automated releases: release-please reads Conventional Commits on `main`,
+# maintains a "release PR" that bumps the version (SemVer) and updates
+# CHANGELOG.md, and on merge of that PR creates the git tag + GitHub release.
+# Packagist derives the package version from the git tag (composer.json carries
+# no version field), so a new tag is all that's needed downstream.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
