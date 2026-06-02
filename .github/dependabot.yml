@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Composer dependencies (the plugin's own require block). Security-relevant
+  # bumps also arrive as Dependabot security PRs (enabled on the repo).
+  - package-ecosystem: "composer"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+
+  # Keep the GitHub Actions (e.g. release-please-action) up to date.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
