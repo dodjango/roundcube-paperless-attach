@@ -41,6 +41,7 @@ $labels['filter_doctype']       = 'Dokumenttyp';
 $labels['filter_date_from']     = 'Von';
 $labels['filter_date_to']       = 'Bis';
 $labels['filter_reset']         = 'Filter zurücksetzen';
+$labels['tags_selected_count']  = '%d ausgewählt';
 
 // Ergebnisliste
 $labels['load_more']    = 'Mehr laden';

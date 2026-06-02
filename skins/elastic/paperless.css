@@ -205,6 +205,15 @@ button.btn.attach.paperless-attach::before {
     color: var(--color-font-secondary);
 }
 
+/* Live selected-tag counter, inline after the "Tags" label. Subtle and
+   secondary so it reads as a hint, not a second label; empty at zero so it
+   adds no width and the row never jumps. */
+.paperless-filter-count {
+    margin-inline-start: 0.35em;
+    font-size: 0.9em;
+    color: var(--color-font-secondary);
+}
+
 .paperless-filter select.paperless-loading {
     opacity: 0.6;
 }

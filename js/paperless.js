@@ -366,7 +366,9 @@ function paperlessBuildDialog() {
         '  </span>' +
         '</div>'
     );
-    $filterRow.find('.paperless-filter-tags .paperless-filter-label').text(t('filter_tags'));
+    $filterRow.find('.paperless-filter-tags .paperless-filter-label')
+        .text(t('filter_tags'))
+        .append($('<span class="paperless-filter-count paperless-f-tags-count" aria-live="polite"></span>'));
     $filterRow.find('.paperless-filter-corr .paperless-filter-label').text(t('filter_correspondent'));
     $filterRow.find('.paperless-filter-doctype .paperless-filter-label').text(t('filter_doctype'));
     $filterRow.find('.paperless-filter-from .paperless-filter-label').text(t('filter_date_from'));
@@ -419,6 +421,13 @@ function paperlessBindDialog($root) {
         return false;
     });
 
+    // Live counter beside the Tags label. The toggle handler above fires
+    // 'change', as do native keyboard/Ctrl-click selections, so a single
+    // change listener keeps the count current for every selection path.
+    $root.find('.paperless-f-tags').on('change', function () {
+        paperlessUpdateTagsCount($root);
+    });
+
     // Filter disclosure: toggle + lazy-load option lists on first expand.
     $root.find('.paperless-filter-toggle').on('click', function () {
         var $btn = $(this);
@@ -436,6 +445,8 @@ function paperlessBindDialog($root) {
         $root.find('.paperless-f-tags option:selected').prop('selected', false);
         $root.find('.paperless-f-corr, .paperless-f-doctype').val('');
         $root.find('.paperless-f-from, .paperless-f-to').val('');
+        // Deselecting options programmatically does not fire 'change'.
+        paperlessUpdateTagsCount($root);
     });
 
     // Footer buttons.
@@ -486,6 +497,12 @@ function paperlessFillSelect($sel, items) {
         $sel.append($('<option>').val(it.id).text(it.name));
     });
     $sel.prop('disabled', false).removeClass('paperless-loading');
+
+    // (Re)populating the tags select clears any prior selection — sync the
+    // counter so it reads zero (label "Tags") rather than a stale value.
+    if ($sel.hasClass('paperless-f-tags')) {
+        paperlessUpdateTagsCount();
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -889,6 +906,20 @@ function paperlessSelectedLabel(n) {
 }
 function paperlessAttachLabel(n) {
     return paperlessFormat(rcmail.gettext('btn_attach_selected', 'paperless_attach'), [n]);
+}
+// Live counter beside the Tags label: empty at zero (label stays "Tags"),
+// otherwise the localized "N selected" string. Recomputed from the DOM so it
+// stays correct regardless of which selection path (toggle, native, reset,
+// refill) triggered the update.
+function paperlessUpdateTagsCount($root) {
+    $root = $root || (paperlessState && paperlessState.$dialog);
+    if (!$root || !$root.length) {
+        return;
+    }
+    var n = $root.find('.paperless-f-tags option:selected').length;
+    $root.find('.paperless-f-tags-count').text(
+        n > 0 ? paperlessFormat(rcmail.gettext('tags_selected_count', 'paperless_attach'), [n]) : ''
+    );
 }
 function paperlessResultCountLabel() {
     return paperlessFormat(
