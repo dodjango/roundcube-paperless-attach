@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to semantic versioning.
 
+## [1.2.0](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.1.0...v1.2.0) (2026-06-04)
+
+
+### Features
+
+* **save:** upload received-mail attachments to Paperless ([b262480](https://github.com/dodjango/roundcube-paperless-attach/commit/b2624802a4bb4eed794676259b2e1dfc512cdc4b))
+
 ## [1.1.0](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.0.0...v1.1.0) (2026-06-02)
 
 
