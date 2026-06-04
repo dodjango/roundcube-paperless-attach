@@ -7,8 +7,9 @@
 
 A Roundcube (Elastic skin) plugin to attach documents from a
 [Paperless-ngx](https://docs.paperless-ngx.com/) instance straight from the compose window — search,
-filter, pick, attached. No download/re-upload detour. The per-user API token is stored **encrypted**
-and all Paperless traffic stays **server-side**.
+filter, pick, attached. No download/re-upload detour. It works **both ways**: you can also **save an
+attachment from a received mail straight into Paperless** without leaving Roundcube. The per-user API
+token is stored **encrypted** and all Paperless traffic stays **server-side**.
 
 ![Paperless picker dialog with search, filters and results](docs/screenshots/picker-dialog.png)
 
@@ -16,6 +17,7 @@ and all Paperless traffic stays **server-side**.
 
 - 🔍 Search + filter your documents — full-text, tags, correspondent, document type, date range — and multi-select across pages.
 - 🖇️ Attaches the searchable **archive PDF**, fetched server-side.
+- 📥 **Save received attachments to Paperless** — a per-attachment button (and one in the attachment preview toolbar after *Open*) uploads the file server-side; the async import is polled and reported (saved ✓ / already exists / failed).
 - 🔐 Token stored encrypted; token + Paperless URL never reach the browser (single server-side proxy).
 - 🧰 Oversize rejected before download, born-digital docs skipped, per-item batch results, no duplicate attaches.
 - 🐳 Survives `:latest` (bind-mount + `ROUNDCUBEMAIL_PLUGINS`, no image build).
@@ -58,6 +60,7 @@ Set PHP `upload_max_filesize` / `post_max_size` / `memory_limit` **≥** your Ro
 
 - **Token** (per user): *Settings → Paperless* → paste your Paperless API token → *Save* → *Test connection*.
 - **Paperless URL** (server-side): copy `config.inc.php.dist` → `config.inc.php` and set `$config['paperless_url']`. It is server-fixed (SSRF guard — no per-user URL field); the default `http://paperless-webserver:8000` is an internal Docker hostname, so most installs must change it.
+- **Max upload size** (optional, server-side): `$config['paperless_max_upload_size']` caps a received attachment uploaded to Paperless (default `100M`; `0` disables the guard).
 
 ## Security
 
@@ -65,7 +68,7 @@ Token encrypted via `rcube::encrypt()` — never stored in DB plaintext, echoed 
 
 ## Status
 
-v1.0 — in daily use on the author's self-hosted stack. Best-effort community plugin (no warranty), so far verified on a single deployment; testing on other Roundcube 1.6.x setups, issues and PRs are very welcome.
+In daily use on the author's self-hosted stack. Best-effort community plugin (no warranty), so far verified on a single deployment; testing on other Roundcube 1.6.x setups, issues and PRs are very welcome.
 
 ## Contributing & releases
 
