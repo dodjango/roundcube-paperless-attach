@@ -521,3 +521,30 @@ button.btn.attach.paperless-attach::before {
 .paperless-attach-summary-list li {
     margin: 0.1rem 0;
 }
+
+/* =====================================================================
+ * Save-to-Paperless — per-attachment upload button in the message view.
+ *
+ * The button is injected server-side into the attachment list (it must survive
+ * the Elastic preview's framed script/stylesheet stripping), and its leaf icon
+ * is applied INLINE for the same reason — so the rules here are only spacing /
+ * affordance polish for the non-framed views where this stylesheet loads. The
+ * icon glyph itself never depends on this file.
+ * ===================================================================== */
+.attachmentslist li a.paperless-save-attachment {
+    margin-inline-start: 0.3rem;
+    opacity: 0.75;
+}
+
+.attachmentslist li a.paperless-save-attachment:hover,
+.attachmentslist li a.paperless-save-attachment:focus {
+    opacity: 1;
+}
+
+.paperless-save-icon {
+    pointer-events: none;
+}
+
+/* NOTE: the attachment-preview toolbar button (mail/get messagepart) paints its
+ * leaf icon via an INLINE style, not a rule here — the plugin stylesheet is not
+ * reliably applied in that window. See paperless_attach.php::preview_toolbar_button. */

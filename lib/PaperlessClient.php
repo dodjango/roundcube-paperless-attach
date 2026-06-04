@@ -22,6 +22,10 @@ class PaperlessClient
     /** @var int Read/total timeout in seconds. */
     private const TIMEOUT = 15;
 
+    /** @var int Upload (POST document) total timeout in seconds — uploads can be
+     *  larger than a metadata GET, so allow more headroom than self::TIMEOUT. */
+    private const UPLOAD_TIMEOUT = 30;
+
     /** @var string Base URL of the Paperless instance, e.g. http://paperless-webserver:8000 */
     private $baseUrl;
 
@@ -334,6 +338,170 @@ class PaperlessClient
         }
 
         return true;
+    }
+
+    /**
+     * Upload a file to Paperless for consumption (the reverse of download()).
+     *
+     * POSTs multipart/form-data to `/api/documents/post_document/` with the file
+     * under the `document` field and an optional `title`. Paperless consumes the
+     * document ASYNCHRONOUSLY and returns the consume task UUID (a JSON-quoted
+     * string) on HTTP 200 — NOT the final document. Poll getTaskStatus() with the
+     * returned UUID to learn the outcome (success / duplicate / failure).
+     *
+     * As with download(), a wildcard Accept header is sent (Paperless answers a
+     * restrictive Accept with HTTP 406). Redirects are disabled and connect/upload
+     * timeouts are
+     * applied on both transports. The file is streamed from `$path` (Guzzle: a file
+     * handle; cURL: CURLFile) — never buffered whole in PHP. The token never leaves
+     * this method.
+     *
+     * @param string      $path     path to the file to upload (already on disk)
+     * @param string      $filename the filename Paperless should record
+     * @param string      $mimetype the file's MIME type
+     * @param string|null $title    optional document title (omitted when null/empty)
+     * @return string|null the consume task UUID on success, or null on failure
+     */
+    public function uploadDocument(string $path, string $filename, string $mimetype, ?string $title = null): ?string
+    {
+        if (!is_file($path) || filesize($path) <= 0) {
+            return null;
+        }
+
+        $url    = $this->baseUrl . '/api/documents/post_document/';
+        $status = 0;
+        $body   = '';
+
+        if (class_exists('\\GuzzleHttp\\Client')) {
+            try {
+                $client = new \GuzzleHttp\Client([
+                    'allow_redirects' => false,
+                    'http_errors'     => false,
+                    'connect_timeout' => self::CONNECT_TIMEOUT,
+                    'timeout'         => self::UPLOAD_TIMEOUT,
+                ]);
+
+                $multipart = [[
+                    'name'     => 'document',
+                    'contents' => fopen($path, 'r'),
+                    'filename' => $filename,
+                    'headers'  => ['Content-Type' => $mimetype],
+                ]];
+                if ($title !== null && $title !== '') {
+                    $multipart[] = ['name' => 'title', 'contents' => $title];
+                }
+
+                $response = $client->request('POST', $url, [
+                    'headers'   => [
+                        'Authorization' => 'Token ' . $this->token,
+                        'Accept'        => '*/*',
+                    ],
+                    'multipart' => $multipart,
+                ]);
+
+                $status = (int) $response->getStatusCode();
+                $body   = (string) $response->getBody();
+            }
+            catch (\Throwable $e) {
+                return null;
+            }
+        }
+        else {
+            $ch = curl_init();
+            if ($ch === false) {
+                return null;
+            }
+
+            // CURLOPT_POSTFIELDS as an array makes cURL set the multipart
+            // Content-Type + boundary itself — do NOT add a manual Content-Type.
+            $post = ['document' => new \CURLFile($path, $mimetype, $filename)];
+            if ($title !== null && $title !== '') {
+                $post['title'] = $title;
+            }
+
+            curl_setopt_array($ch, [
+                CURLOPT_URL            => $url,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $post,
+                CURLOPT_HTTPHEADER     => [
+                    'Authorization: Token ' . $this->token,
+                    'Accept: */*',
+                ],
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_FOLLOWLOCATION => false,
+                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+                CURLOPT_TIMEOUT        => self::UPLOAD_TIMEOUT,
+            ]);
+
+            $body   = curl_exec($ch);
+            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+            curl_close($ch);
+
+            if ($body === false) {
+                return null;
+            }
+        }
+
+        if ($status !== 200) {
+            return null;
+        }
+
+        // The body is the task UUID as a JSON string, e.g. "\"f1d2…\"". Decode if
+        // it is valid JSON, otherwise fall back to trimming surrounding quotes.
+        $decoded = json_decode((string) $body, true);
+        $taskId  = is_string($decoded) ? $decoded : trim((string) $body, " \t\n\r\0\x0B\"");
+
+        $taskId = trim((string) $taskId);
+
+        return $taskId !== '' ? $taskId : null;
+    }
+
+    /**
+     * Look up the status of an async consume task created by uploadDocument().
+     *
+     * GET `/api/tasks/?task_id=<uuid>` returns a list with (at most) one task
+     * object. The UUID is format-validated before it enters the query string.
+     *
+     * @param string $taskId the consume task UUID returned by uploadDocument()
+     * @return array{status: string, result: string, related_document: int|null}|null
+     *   normalized task record (status upper-cased, e.g. PENDING/STARTED/SUCCESS/
+     *   FAILURE), or null on a transport/parse error or an empty result.
+     */
+    public function getTaskStatus(string $taskId): ?array
+    {
+        // Injection guard: task ids are UUIDs (hex + dashes). Reject anything else
+        // before it reaches the query string.
+        if (!preg_match('/^[0-9a-fA-F-]{8,64}$/', $taskId)) {
+            return null;
+        }
+
+        $res = $this->request('GET', '/api/tasks/?task_id=' . rawurlencode($taskId));
+
+        if ((int) $res['status'] !== 200) {
+            return null;
+        }
+
+        $data = json_decode($res['body'], true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        // The endpoint may return a bare list, or a DRF-paginated {results:[…]}.
+        $list = isset($data['results']) && is_array($data['results']) ? $data['results'] : $data;
+        $task = is_array($list) ? reset($list) : null;
+
+        if (!is_array($task)) {
+            return null;
+        }
+
+        $related = $task['related_document'] ?? null;
+
+        return [
+            'status'           => strtoupper((string) ($task['status'] ?? '')),
+            'result'           => (string) ($task['result'] ?? ''),
+            'related_document' => $related !== null && ctype_digit((string) $related) ? (int) $related : null,
+        ];
     }
 
     /**

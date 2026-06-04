@@ -22,6 +22,7 @@ if (window.rcmail) {
     rcmail.addEventListener('init', function () {
         paperlessInitSettings();
         paperlessInitCompose();
+        paperlessInitMessageView();
     });
 }
 
@@ -1006,4 +1007,200 @@ function paperlessFormat(tmpl, args) {
         var v = args[i++];
         return (v === undefined || v === null) ? '' : String(v);
     });
+}
+
+// =========================================================================
+// Message view (show / preview) — save a RECEIVED attachment to Paperless.
+//
+// Reverse direction of the compose picker: upload an attachment to Paperless
+// server-side (no token/URL in the browser), then poll the async consume task
+// and report the outcome (uploaded ✓ / duplicate / failed) as a toast.
+//
+// Two entry points:
+//  1. The per-attachment options dropdown (#attachmentmenu) — a new
+//     "Save to Paperless" item. Core only wires open/download/rename with the
+//     clicked attachment's mime_id, so we capture it ourselves from `menu-open`.
+//  2. The attachment-preview toolbar button (mail/get window). That window may
+//     run without plugin JS, so its button calls window.opener.paperlessSaveFromPreview()
+//     here in the main window.
+// =========================================================================
+
+// In-flight saves keyed by mime part id: { msgId, filename, taskId, attempts }.
+// Doubles as the double-submit guard (a part already present is in flight).
+var paperlessSaves = {};
+
+// Register-once guard for the message-view response listeners.
+var paperlessSaveListenersBound = false;
+
+// Poll cadence + ceiling: ~12 × 1.5s ≈ 18s before we stop waiting and report
+// the upload as "queued" (it was accepted; Paperless is just still consuming).
+var PAPERLESS_POLL_INTERVAL = 1500;
+var PAPERLESS_MAX_POLLS = 12;
+
+// Runs in the MAIN mail window (and any non-framed message view). Binds the
+// upload/poll response listeners on the live rcmail. The per-attachment buttons
+// themselves are injected server-side into the (possibly framed) message body
+// and call paperlessSaveAttachment() — resolving it from window OR window.parent
+// — so the actual upload always runs here, where rcmail is alive.
+function paperlessInitMessageView() {
+    if (rcmail.env.task !== 'mail') {
+        return;
+    }
+    if (rcmail.env.action !== '' && rcmail.env.action !== 'show'
+        && rcmail.env.action !== 'preview' && rcmail.env.action !== 'get') {
+        return;
+    }
+
+    if (!paperlessSaveListenersBound) {
+        rcmail.addEventListener('plugin.paperless.save_result', paperlessOnSaveResult);
+        rcmail.addEventListener('plugin.paperless.task_result', paperlessOnTaskResult);
+        paperlessSaveListenersBound = true;
+    }
+}
+
+// Kick off an upload: show a persistent "uploading" toast, then POST the
+// message coordinates. The server streams the part to Paperless and returns the
+// async task id, handled in paperlessOnSaveResult.
+function paperlessSaveAttachment(ctx) {
+    if (!ctx || !ctx.part || typeof ctx.uid === 'undefined' || ctx.uid === null) {
+        return;
+    }
+
+    var key = String(ctx.part);
+    if (paperlessSaves[key]) {
+        return; // already in flight for this attachment — ignore re-trigger
+    }
+
+    var t = function (k) { return rcmail.gettext(k, 'paperless_attach'); };
+    var label = ctx.filename
+        ? paperlessFormat(t('save_uploading'), [ctx.filename])
+        : t('save_uploading_generic');
+
+    var msgId = rcmail.display_message(label, 'loading');
+
+    paperlessSaves[key] = { msgId: msgId, filename: ctx.filename || '', taskId: null, attempts: 0 };
+
+    rcmail.http_post('plugin.paperless.save_attachment', {
+        _uid:  ctx.uid,
+        _mbox: ctx.mbox || '',
+        _part: ctx.part
+    }, false);
+}
+
+// Upload response: on success start polling the consume task; otherwise report
+// the failure category. Correlated by the echoed `part`.
+function paperlessOnSaveResult(data) {
+    data = data || {};
+    var t = function (k) { return rcmail.gettext(k, 'paperless_attach'); };
+
+    var key  = String(data.part || '');
+    var save = paperlessSaves[key];
+
+    if (save && save.msgId) {
+        rcmail.hide_message(save.msgId);
+        save.msgId = null;
+    }
+
+    var fname = (save && save.filename) || data.filename || '';
+
+    if (!data.ok) {
+        if (key) { delete paperlessSaves[key]; }
+
+        if (data.error === 'no_token') {
+            rcmail.display_message(t('save_no_token'), 'error');
+        } else if (data.error === 'too_large') {
+            rcmail.display_message(paperlessFormat(t('save_too_large'), [fname]), 'error');
+        } else {
+            rcmail.display_message(
+                fname ? paperlessFormat(t('save_failed'), [fname]) : t('save_failed_generic'),
+                'error'
+            );
+        }
+        return;
+    }
+
+    // Defensive: a preview-path save without a pre-registered entry.
+    if (!save) {
+        save = paperlessSaves[key] = { msgId: null, filename: fname, taskId: null, attempts: 0 };
+    }
+
+    save.filename = fname;
+    save.taskId   = data.task_id;
+    save.attempts = 0;
+    save.msgId    = rcmail.display_message(
+        fname ? paperlessFormat(t('save_processing'), [fname]) : t('save_processing_generic'),
+        'loading'
+    );
+
+    paperlessPollTask(key);
+}
+
+// Issue one task-status poll for an in-flight save.
+function paperlessPollTask(key) {
+    var save = paperlessSaves[key];
+    if (!save || !save.taskId) {
+        return;
+    }
+    save.attempts++;
+    rcmail.http_post('plugin.paperless.task_status', {
+        task_id:  save.taskId,
+        filename: save.filename,
+        part:     key
+    }, false);
+}
+
+// Task-status response: keep polling while pending, otherwise report the
+// terminal outcome. Correlated by the echoed `part`.
+function paperlessOnTaskResult(data) {
+    data = data || {};
+    var t = function (k) { return rcmail.gettext(k, 'paperless_attach'); };
+
+    var key  = String(data.part || '');
+    var save = paperlessSaves[key];
+    if (!save) {
+        return; // stale/unknown — nothing in flight for this part
+    }
+
+    var fname = save.filename || data.filename || '';
+
+    if (data.status === 'pending') {
+        if (save.attempts >= PAPERLESS_MAX_POLLS) {
+            if (save.msgId) { rcmail.hide_message(save.msgId); }
+            delete paperlessSaves[key];
+            rcmail.display_message(
+                fname ? paperlessFormat(t('save_pending'), [fname]) : t('save_pending_generic'),
+                'confirmation'
+            );
+            return;
+        }
+        setTimeout(function () { paperlessPollTask(key); }, PAPERLESS_POLL_INTERVAL);
+        return;
+    }
+
+    // Terminal — drop the busy toast + clear the guard, then report.
+    if (save.msgId) { rcmail.hide_message(save.msgId); }
+    delete paperlessSaves[key];
+
+    if (data.status === 'success') {
+        rcmail.display_message(
+            fname ? paperlessFormat(t('save_success'), [fname]) : t('save_success_generic'),
+            'confirmation'
+        );
+    } else if (data.status === 'duplicate') {
+        rcmail.display_message(
+            fname ? paperlessFormat(t('save_duplicate'), [fname]) : t('save_duplicate_generic'),
+            'warning'
+        );
+    } else if (data.status === 'failure') {
+        rcmail.display_message(
+            fname ? paperlessFormat(t('save_failed'), [fname]) : t('save_failed_generic'),
+            'error'
+        );
+    } else {
+        // 'unknown' — task unreadable; the upload WAS accepted, so report queued.
+        rcmail.display_message(
+            fname ? paperlessFormat(t('save_pending'), [fname]) : t('save_pending_generic'),
+            'confirmation'
+        );
+    }
 }

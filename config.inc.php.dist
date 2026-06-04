@@ -18,3 +18,11 @@
 // Default targets the Paperless service on the internal `eplamat` docker network.
 // -----------------------------------------------------------------------------
 $config['paperless_url'] = 'http://paperless-webserver:8000';
+
+// -----------------------------------------------------------------------------
+// Max attachment size (bytes, or PHP shorthand like "100M") accepted when saving
+// a RECEIVED message attachment to Paperless. The size is checked against the
+// IMAP-reported part size before the upload starts. Set to "0" to disable the
+// guard (let Paperless enforce its own limits). Default: 100M.
+// -----------------------------------------------------------------------------
+$config['paperless_max_upload_size'] = '100M';

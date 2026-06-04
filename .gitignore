@@ -11,3 +11,6 @@ composer.lock
 .DS_Store
 .idea/
 .vscode/
+
+# Playwright MCP scratch output (headless UI checks)
+.playwright-mcp/

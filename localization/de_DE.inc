@@ -88,4 +88,28 @@ $labels['attach_duplicate_short'] = 'bereits angehängt';
 $labels['attach_no_token']      = 'Kein gültiger Paperless-Token. Bitte in den Einstellungen hinterlegen.';
 $labels['attach_no_token_link'] = 'In den Einstellungen konfigurieren';
 
+// --- Feature: Empfangene Anhänge nach Paperless speichern ---
+
+// Menüeintrag / Vorschau-Button
+$labels['save_to_paperless']       = 'Nach Paperless speichern';
+$labels['save_to_paperless_short'] = 'Paperless';
+
+// Fortschritt (%s = Dateiname)
+$labels['save_uploading']         = '„%s“ wird nach Paperless hochgeladen…';
+$labels['save_uploading_generic'] = 'Anhang wird nach Paperless hochgeladen…';
+$labels['save_processing']        = '„%s“ wird in Paperless verarbeitet…';
+$labels['save_processing_generic'] = 'Wird in Paperless verarbeitet…';
+
+// Ergebnis
+$labels['save_success']          = '„%s“ wurde in Paperless gespeichert ✓';
+$labels['save_success_generic']  = 'In Paperless gespeichert ✓';
+$labels['save_duplicate']        = '„%s“ ist bereits in Paperless vorhanden.';
+$labels['save_duplicate_generic'] = 'Dokument ist bereits in Paperless vorhanden.';
+$labels['save_pending']          = '„%s“ wurde an Paperless übergeben (Verarbeitung läuft).';
+$labels['save_pending_generic']  = 'An Paperless übergeben (Verarbeitung läuft).';
+$labels['save_failed']           = '„%s“ konnte nicht in Paperless gespeichert werden.';
+$labels['save_failed_generic']   = 'Anhang konnte nicht in Paperless gespeichert werden.';
+$labels['save_too_large']        = '„%s“ ist zu groß für den Upload nach Paperless.';
+$labels['save_no_token']         = 'Kein gültiger Paperless-Token. Bitte in den Einstellungen hinterlegen.';
+
 $messages = [];

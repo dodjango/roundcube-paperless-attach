@@ -96,6 +96,36 @@ class paperless_attach extends rcube_plugin
         // ---------------------------------------------------------------------
         $this->register_action('plugin.paperless.attach', [$this, 'action_attach']);
 
+        // ---------------------------------------------------------------------
+        // Save-to-Paperless — the REVERSE direction of attach.
+        //
+        // Uploads an attachment of a RECEIVED message to Paperless server-side
+        // (POST /api/documents/post_document/), then exposes the async consume
+        // task so the client can poll its outcome (success / duplicate / failure).
+        // Registered unconditionally; Roundcube only dispatches on a matching
+        // _action. The token + base URL are resolved and used server-side ONLY.
+        // ---------------------------------------------------------------------
+        $this->register_action('plugin.paperless.save_attachment', [$this, 'action_save_attachment']);
+        $this->register_action('plugin.paperless.task_status', [$this, 'action_task_status']);
+
+        // Inject a per-attachment "Save to Paperless" button into the message
+        // attachment list (mail/show + mail/preview). Done via this hook — which
+        // rewrites the rendered list BODY — rather than an included script/CSS,
+        // because the Elastic preview pane loads the message with `_framed=1`,
+        // and Roundcube then STRIPS all plugin scripts + the plugin <head> (so an
+        // included button command/icon would silently vanish). Body content from
+        // a template-object hook survives framing; the button's icon is inlined
+        // and its click is routed to the parent window's plugin JS (see below).
+        $this->add_hook('template_object_messageattachments', [$this, 'attachment_save_links']);
+
+        // Second entry point: a "Save to Paperless" button in the attachment
+        // PREVIEW toolbar (mail/get _frame=1 → messagepart.html `toolbar`
+        // container), shown after the user clicks "Open" on an attachment. Same
+        // robustness pattern: inline icon + a click routed to whichever window
+        // holds the plugin JS (this window when loaded for `get`, else the opener
+        // / parent).
+        $this->add_hook('template_container', [$this, 'preview_toolbar_button']);
+
         // Re-attach Paperless documents to the outgoing message at send time.
         // Required because a slow attach request (PDF download) leaves the attachment
         // in $_SESSION but not in send.php's $COMPOSE reference, so core never
@@ -134,6 +164,251 @@ class paperless_attach extends rcube_plugin
             // are NEVER placed into rcmail.env.
             $rcmail->output->set_env('paperless_upload_limit', $this->effective_upload_limit());
         }
+
+        // ---------------------------------------------------------------------
+        // Message view — load the plugin JS/CSS in the MAIN mail window so the
+        // upload/poll logic + toasts live in a persistent window.
+        //
+        // Why the main window (action '') and not just show/preview: the Elastic
+        // preview pane loads the message as `_action=preview&_framed=1`, and
+        // Roundcube strips ALL plugin scripts/stylesheets from a framed page. The
+        // per-attachment buttons we inject into the (framed) message body route
+        // their click to THIS window's paperlessSaveAttachment(), where rcmail is
+        // alive. We also load on show/extwin so a non-framed full view works
+        // self-contained, and on `get` so the attachment-preview window
+        // (messagepart) can run the upload itself rather than only via its opener.
+        // ---------------------------------------------------------------------
+        if ($rcmail->task === 'mail' && in_array((string) $rcmail->action, ['', 'show', 'preview', 'get'], true)) {
+            $this->include_script('js/paperless.js');
+            $this->include_stylesheet($this->local_skin_path() . '/paperless.css');
+        }
+    }
+
+    /**
+     * template_container hook — add a "Save to Paperless" button to the
+     * attachment-preview toolbar (mail/get _frame=1, messagepart.html `toolbar`).
+     *
+     * Shown after "Open": gated to the messagepart toolbar container under the
+     * `get` action with a real attachment part. The icon is inlined (the preview
+     * window need not carry the plugin stylesheet) and the click resolves
+     * paperlessSaveAttachment() from this window, else the opener, else the parent
+     * — wherever the plugin JS is alive — using the attachment coordinates read
+     * server-side from the request (never the browser-trusted title).
+     *
+     * @param array $args template_container hook args {name, id, content}
+     * @return array
+     */
+    public function preview_toolbar_button($args)
+    {
+        $rcmail = rcmail::get_instance();
+
+        if (($args['name'] ?? '') !== 'toolbar' || ($args['id'] ?? '') !== 'messagetoolbar') {
+            return $args;
+        }
+        if ((string) $rcmail->action !== 'get') {
+            return $args;
+        }
+
+        $part = rcube_utils::get_input_string('_part', rcube_utils::INPUT_GPC);
+        if ($part === '') {
+            return $args;
+        }
+        $uid  = rcube_utils::get_input_string('_uid', rcube_utils::INPUT_GPC);
+        $mbox = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_GPC);
+
+        $onclick = sprintf(
+            'var w=window.paperlessSaveAttachment?window:'
+            . '(window.opener&&window.opener.paperlessSaveAttachment?window.opener:'
+            . '(window.parent&&window.parent.paperlessSaveAttachment?window.parent:null));'
+            . 'if(w){w.paperlessSaveAttachment({uid:%s,mbox:%s,part:%s});}return false;',
+            json_encode($uid),
+            json_encode($mbox),
+            json_encode($part)
+        );
+
+        // Build the button to look like the native toolbar buttons (Download/Print):
+        // leaf icon ABOVE a short `.inner` label.
+        //
+        // Everything is styled INLINE on real elements — not via the plugin
+        // stylesheet (not applied in the preview window) and not via an injected
+        // <style> (Elastic's toolbar JS rebuilds #messagetoolbar and drops non-<a>
+        // nodes, so a <style> tag is lost; an inline-styled child <span> survives).
+        //
+        // Elastic gives every toolbar <a> an icon `::before` of a fixed height that
+        // is EMPTY for our unknown `paperless` class, which would otherwise push our
+        // content down. We can't restyle a ::before inline, so the icon span uses a
+        // negative top margin to ride up over that empty box — landing the leaf
+        // where the native glyph sits, with the label centered below.
+        $icon = html::span([
+            'class'       => 'paperless-save-icon',
+            'style'       => $this->leaf_icon_toolbar_style(),
+            'aria-hidden' => 'true',
+        ], '');
+
+        $button = html::a([
+            'href'    => '#',
+            'class'   => 'button paperless-save-attachment',
+            'role'    => 'button',
+            'onclick' => $onclick,
+            'title'   => $this->gettext('save_to_paperless'),
+        ], $icon . html::span(['class' => 'inner'], rcube::Q($this->gettext('save_to_paperless_short'))));
+
+        $args['content'] = ($args['content'] ?? '') . $button;
+
+        return $args;
+    }
+
+    /**
+     * template_object_messageattachments hook — append a per-attachment
+     * "Save to Paperless" button to each row of the rendered attachment list.
+     *
+     * Rewrites the list BODY (not an included asset) so the buttons survive the
+     * Elastic preview's `_framed=1` script/stylesheet stripping. Each button:
+     *  - carries its attachment coordinates (uid/mbox/mime_id) inline, captured
+     *    server-side from the message env — no client-side menu-open guessing;
+     *  - inlines its Paperless-leaf icon (the plugin stylesheet may be stripped
+     *    in a framed preview, so the glyph cannot depend on a CSS class);
+     *  - on click resolves paperlessSaveAttachment() from THIS window or, when
+     *    running inside the framed preview body, from window.parent (the main
+     *    mail window, which has the plugin JS) — then runs the upload there.
+     *
+     * @param array $p hook args; $p['content'] is the rendered <ul> list HTML
+     * @return array
+     */
+    public function attachment_save_links($p)
+    {
+        $rcmail = rcmail::get_instance();
+
+        $content = (string) ($p['content'] ?? '');
+        if ($content === '') {
+            return $p;
+        }
+
+        // Page-level message coordinates (set by show.php). Fall back to request.
+        $uid  = (string) $rcmail->output->get_env('uid');
+        $mbox = (string) $rcmail->output->get_env('mailbox');
+        if ($uid === '') {
+            $uid = rcube_utils::get_input_string('_uid', rcube_utils::INPUT_GPC);
+        }
+        if ($mbox === '') {
+            $mbox = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_GPC);
+        }
+
+        // Append our button just before each </li>. The list is a flat, non-nested
+        // <ul><li id="attach<mime_id>">…</li>…</ul> (see show.php), so a per-<li>
+        // callback over (open tag)(inner)(close) is safe. The mime_id is taken
+        // from the row's own id attribute — never from the browser.
+        $plugin = $this;
+        $content = preg_replace_callback(
+            '#(<li\b[^>]*\bid="attach([^"]+)"[^>]*>)(.*?)(</li>)#s',
+            function ($m) use ($plugin, $uid, $mbox) {
+                $part   = html_entity_decode($m[2], ENT_QUOTES);
+                $button = $plugin->paperless_save_button($uid, $mbox, $part);
+                return $m[1] . $m[3] . $button . $m[4];
+            },
+            $content
+        );
+
+        $p['content'] = $content;
+
+        return $p;
+    }
+
+    /**
+     * Build a single per-attachment "Save to Paperless" button (icon-only, with
+     * an accessible label). Public only so the attachment_save_links() callback
+     * can reach it.
+     *
+     * The onclick resolves paperlessSaveAttachment() from the current window or
+     * its parent (the framed-preview case) and invokes it with the attachment
+     * coordinates. Values are JSON-encoded then HTML-attribute-escaped by html::a;
+     * the browser entity-decodes them back to valid JS before execution.
+     *
+     * @param string $uid  message uid
+     * @param string $mbox mailbox (folder) name
+     * @param string $part attachment mime part id
+     * @return string button HTML
+     */
+    public function paperless_save_button(string $uid, string $mbox, string $part): string
+    {
+        $onclick = sprintf(
+            'var w=window.paperlessSaveAttachment?window:'
+            . '(window.parent&&window.parent.paperlessSaveAttachment?window.parent:null);'
+            . 'if(w){w.paperlessSaveAttachment({uid:%s,mbox:%s,part:%s});}return false;',
+            json_encode($uid),
+            json_encode($mbox),
+            json_encode($part)
+        );
+
+        $icon = html::span([
+            'class'       => 'paperless-save-icon',
+            'style'       => $this->leaf_icon_inline_style(),
+            'aria-hidden' => 'true',
+        ], '');
+
+        return html::a([
+            'href'       => '#',
+            'class'      => 'button icon paperless-save-attachment',
+            'onclick'    => $onclick,
+            'title'      => $this->gettext('save_to_paperless'),
+            'aria-label' => $this->gettext('save_to_paperless'),
+        ], $icon);
+    }
+
+    /**
+     * Inline CSS for the Paperless-leaf icon, painted in currentColor via a mask.
+     *
+     * Returned as an inline `style` string (not a CSS class) because the Elastic
+     * preview pane runs framed, where the plugin stylesheet — and thus any class
+     * the icon would rely on — is stripped. The data: URI mirrors --paperless-leaf
+     * in paperless.css (the plugin dir's standalone .svg files 404).
+     *
+     * @return string
+     */
+    private function leaf_icon_inline_style(): string
+    {
+        $leaf = $this->leaf_url();
+
+        return implode('', [
+            'display:inline-block;width:1.1em;height:1.1em;vertical-align:-0.2em;',
+            'background-color:currentColor;',
+            '-webkit-mask:' . $leaf . ' center / contain no-repeat;',
+            'mask:' . $leaf . ' center / contain no-repeat;',
+        ]);
+    }
+
+    /**
+     * Inline style for the preview-toolbar leaf icon: a block, auto-centered box
+     * that rides UP over Elastic's empty `.menu.toolbar a:before` (a fixed-height
+     * icon slot present on every toolbar link but glyph-less for our class) via a
+     * negative top margin, so the leaf lands where the native glyph would and the
+     * label sits centered beneath it. All inline — see preview_toolbar_button().
+     *
+     * @return string
+     */
+    private function leaf_icon_toolbar_style(): string
+    {
+        $leaf = $this->leaf_url();
+
+        return implode('', [
+            'display:block;width:1.6rem;height:1.6rem;margin:-1.7rem auto 0;',
+            'background-color:currentColor;',
+            '-webkit-mask:' . $leaf . ' center / contain no-repeat;',
+            'mask:' . $leaf . ' center / contain no-repeat;',
+        ]);
+    }
+
+    /**
+     * The Paperless-leaf SVG as a CSS `url("data:…")` token, white-filled so it
+     * works as a luminance/alpha mask painted in currentColor. Shared by the
+     * per-attachment inline icon and the preview-toolbar ::before <style> block.
+     * Inlined (not a .svg file) because the plugin dir's standalone .svg files 404.
+     *
+     * @return string
+     */
+    private function leaf_url(): string
+    {
+        return "url(\"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20900%20900'%3E%3Cg%20transform='matrix(10.638298,0,0,10.638298,106.38298,-206.38301)'%3E%3Cg%20transform='matrix(0.10341565,0,0,0.10341565,-11.43874,18.048418)'%3E%3Cpath%20fill='%23ffffff'%20d='M%20231,798%20C%20227,779%20219,741%20218,741%2049,640%2069,465%20125,365%20c%2012,126%20235,213%20105,367%20-1,2%206,26%2012,48%2026,-44%2065,-97%2063,-102%20C%20145,288%20645,258%20749,16%20c%2047,234%20-24,596%20-426,688%20-2,1%20-73,126%20-76,127%200,-2%20-30,-1%20-26,-11%202,-6%206,-14%2010,-22%20z%20M%20330,625%20C%20267,476%20452,312%20544,271%20356,439%20324,564%20330,625%20Z%20m%20-104,79%20c%2051,-59%20-9,-160%20-45,-193%2061,105%2057,166%2045,193%20z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E\")";
     }
 
     /**
@@ -1226,5 +1501,271 @@ class paperless_attach extends rcube_plugin
         }
 
         return $base . '.pdf';
+    }
+
+    // =====================================================================
+    // Save-to-Paperless — upload a received-message attachment to Paperless.
+    //
+    // action_save_attachment() streams the requested MIME part to a temp file
+    // and POSTs it to Paperless, returning the async consume task UUID.
+    // action_task_status() lets the client poll that task for the outcome. The
+    // browser supplies only message coordinates (_uid/_mbox/_part) + the task
+    // id; the filename/mimetype come from the message structure (server trust),
+    // and the token + base URL never leave the server.
+    // =====================================================================
+
+    /**
+     * plugin.paperless.save_attachment — upload one received attachment.
+     *
+     * Reads {_uid, _mbox, _part}, locates the part in the message structure,
+     * enforces a configurable size cap from the known part size, streams the
+     * bytes to a temp file, and uploads via PaperlessClient::uploadDocument().
+     * Returns {ok, task_id, filename} on success, or {ok:false, error, filename?}
+     * with error ∈ no_token | bad_request | too_large | error.
+     */
+    public function action_save_attachment()
+    {
+        $rcmail = rcmail::get_instance();
+
+        $uid  = rcube_utils::get_input_string('_uid', rcube_utils::INPUT_POST);
+        $mbox = rcube_utils::get_input_string('_mbox', rcube_utils::INPUT_POST);
+        $part = rcube_utils::get_input_string('_part', rcube_utils::INPUT_POST);
+
+        if ($uid === '' || $part === '') {
+            $this->send_save_result(['ok' => false, 'error' => 'bad_request']);
+            return;
+        }
+
+        // Token first — never call upstream without a usable token.
+        $token = $this->get_token();
+        if ($token === null || $token === false) {
+            $this->send_save_result(['ok' => false, 'error' => 'no_token']);
+            return;
+        }
+
+        // Load the message + locate the requested MIME part. The filename and
+        // mimetype are taken from the message structure, never from the browser.
+        try {
+            $message = new rcube_message($uid, $mbox !== '' ? $mbox : null);
+        }
+        catch (\Throwable $e) {
+            $message = null;
+        }
+
+        $mime_parts = ($message && isset($message->mime_parts) && is_array($message->mime_parts))
+            ? $message->mime_parts
+            : [];
+        $mp = $mime_parts[$part] ?? null;
+
+        if ($mp === null) {
+            $this->send_save_result(['ok' => false, 'error' => 'bad_request']);
+            return;
+        }
+
+        $filename = trim((string) ($mp->filename ?? ''));
+        if ($filename === '') {
+            $filename = 'document';
+        }
+        $mimetype = (string) ($mp->mimetype ?? 'application/octet-stream');
+
+        // Pre-download size guard from the known part size (the IMAP structure
+        // carries it) against the configurable cap.
+        $max = $this->max_upload_size();
+        if ($max > 0 && (int) ($mp->size ?? 0) > $max) {
+            $this->send_save_result(['ok' => false, 'error' => 'too_large', 'filename' => $filename]);
+            return;
+        }
+
+        // Stream the part body to a temp file (never the whole part in memory).
+        $tmp = rcube_utils::temp_filename('paperless');
+        $fp  = @fopen($tmp, 'w');
+        if ($fp === false) {
+            $this->send_save_result(['ok' => false, 'error' => 'error', 'filename' => $filename]);
+            return;
+        }
+
+        $message->get_part_body($part, false, 0, $fp);
+        fclose($fp);
+
+        if (!is_file($tmp) || filesize($tmp) <= 0) {
+            @unlink($tmp);
+            $this->send_save_result(['ok' => false, 'error' => 'error', 'filename' => $filename]);
+            return;
+        }
+
+        require_once __DIR__ . '/lib/PaperlessClient.php';
+
+        $base_url = (string) $rcmail->config->get('paperless_url', self::DEFAULT_BASE_URL);
+        $client   = new PaperlessClient($base_url, $token);
+
+        // Title = filename without extension (the "direct upload" decision —
+        // Paperless then applies its own matching rules for tags/correspondent).
+        $title = $this->title_from_filename($filename);
+
+        try {
+            $task_id = $client->uploadDocument($tmp, $filename, $mimetype, $title);
+        }
+        catch (\Throwable $e) {
+            $task_id = null;
+        }
+
+        @unlink($tmp);
+
+        if ($task_id === null) {
+            $this->send_save_result(['ok' => false, 'error' => 'error', 'filename' => $filename]);
+            return;
+        }
+
+        $this->send_save_result([
+            'ok'       => true,
+            'task_id'  => $task_id,
+            'filename' => $filename,
+        ]);
+    }
+
+    /**
+     * plugin.paperless.task_status — poll an async consume task's outcome.
+     *
+     * Reads {task_id, filename?}, queries PaperlessClient::getTaskStatus(), and
+     * maps it to {status, filename, related_document?} with status ∈
+     *   pending  — still queued / running (client keeps polling)
+     *   success  — consumed; related_document is the new Paperless document id
+     *   duplicate — Paperless rejected it as an existing document
+     *   failure  — consumption failed
+     *   unknown  — could not read the task (transport/parse) — client stops politely
+     */
+    public function action_task_status()
+    {
+        $rcmail = rcmail::get_instance();
+
+        $task_id  = rcube_utils::get_input_string('task_id', rcube_utils::INPUT_POST);
+        $filename = rcube_utils::get_input_string('filename', rcube_utils::INPUT_POST);
+
+        if ($task_id === '') {
+            $this->send_task_result(['status' => 'unknown', 'filename' => $filename]);
+            return;
+        }
+
+        $token = $this->get_token();
+        if ($token === null || $token === false) {
+            $this->send_task_result(['status' => 'unknown', 'filename' => $filename]);
+            return;
+        }
+
+        require_once __DIR__ . '/lib/PaperlessClient.php';
+
+        $base_url = (string) $rcmail->config->get('paperless_url', self::DEFAULT_BASE_URL);
+        $client   = new PaperlessClient($base_url, $token);
+
+        try {
+            $task = $client->getTaskStatus($task_id);
+        }
+        catch (\Throwable $e) {
+            $task = null;
+        }
+
+        // No task row yet (or unreadable) — report pending so the client keeps
+        // polling for a few more rounds rather than declaring a premature failure.
+        if ($task === null) {
+            $this->send_task_result(['status' => 'pending', 'filename' => $filename]);
+            return;
+        }
+
+        $upstream = $task['status'];
+        $result   = strtolower($task['result']);
+
+        if ($upstream === 'SUCCESS') {
+            $status = 'success';
+        }
+        elseif ($upstream === 'FAILURE') {
+            // Paperless reports duplicates as a failed task whose result names the
+            // existing document ("…is a duplicate of…" / "already exists").
+            $status = (strpos($result, 'duplicate') !== false || strpos($result, 'already exists') !== false)
+                ? 'duplicate'
+                : 'failure';
+        }
+        else {
+            // PENDING / STARTED / RETRY / empty → still in progress.
+            $status = 'pending';
+        }
+
+        $this->send_task_result([
+            'status'           => $status,
+            'filename'         => $filename,
+            'related_document' => $task['related_document'],
+        ]);
+    }
+
+    /**
+     * Push the upload result envelope to the client and end the request.
+     *
+     * @param array $data {ok, task_id?, filename?, error?}
+     */
+    private function send_save_result(array $data)
+    {
+        $rcmail = rcmail::get_instance();
+
+        // Echo the requested part id so the client can correlate this result to
+        // the exact attachment row / in-flight guard it started.
+        if (!isset($data['part'])) {
+            $data['part'] = rcube_utils::get_input_string('_part', rcube_utils::INPUT_POST);
+        }
+
+        $rcmail->output->command('plugin.paperless.save_result', $data);
+        $rcmail->output->send();
+    }
+
+    /**
+     * Push the task-status envelope to the client and end the request.
+     *
+     * @param array $data {status, filename?, related_document?}
+     */
+    private function send_task_result(array $data)
+    {
+        $rcmail = rcmail::get_instance();
+
+        // Echo the part id so the client can correlate this poll result back to
+        // the in-flight save it belongs to.
+        if (!isset($data['part'])) {
+            $data['part'] = rcube_utils::get_input_string('part', rcube_utils::INPUT_POST);
+        }
+
+        $rcmail->output->command('plugin.paperless.task_result', $data);
+        $rcmail->output->send();
+    }
+
+    /**
+     * Maximum upload size in bytes for Save-to-Paperless, from the
+     * `paperless_max_upload_size` config (shorthand like "100M"). 0 / unlimited
+     * disables the guard. Defaults to 100M when unset.
+     *
+     * @return int bytes, or 0 for unlimited
+     */
+    private function max_upload_size(): int
+    {
+        $rcmail = rcmail::get_instance();
+        $raw    = $rcmail->config->get('paperless_max_upload_size', '100M');
+
+        if ($raw === '' || $raw === null || (string) $raw === '0') {
+            return 0;
+        }
+
+        return $this->parse_php_bytes((string) $raw);
+    }
+
+    /**
+     * Derive a Paperless document title from an attachment filename by dropping a
+     * single trailing extension (e.g. "Rechnung_2024.pdf" → "Rechnung_2024").
+     * Returns the unchanged name when there is no usable extension.
+     *
+     * @param string $filename
+     * @return string
+     */
+    private function title_from_filename(string $filename): string
+    {
+        $base = preg_replace('/\.[A-Za-z0-9]{1,8}$/', '', $filename);
+        $base = trim((string) $base);
+
+        return $base !== '' ? $base : $filename;
     }
 }

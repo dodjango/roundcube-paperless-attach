@@ -88,4 +88,28 @@ $labels['attach_duplicate_short'] = 'already attached';
 $labels['attach_no_token']      = 'No valid Paperless token. Please configure it in Settings.';
 $labels['attach_no_token_link'] = 'Configure it in Settings';
 
+// --- Feature: Save received attachments to Paperless ---
+
+// Menu item / preview button
+$labels['save_to_paperless']       = 'Save to Paperless';
+$labels['save_to_paperless_short'] = 'Paperless';
+
+// Progress (%s = filename)
+$labels['save_uploading']          = 'Uploading "%s" to Paperless…';
+$labels['save_uploading_generic']  = 'Uploading attachment to Paperless…';
+$labels['save_processing']         = 'Processing "%s" in Paperless…';
+$labels['save_processing_generic'] = 'Processing in Paperless…';
+
+// Outcome
+$labels['save_success']           = '"%s" was saved to Paperless ✓';
+$labels['save_success_generic']   = 'Saved to Paperless ✓';
+$labels['save_duplicate']         = '"%s" already exists in Paperless.';
+$labels['save_duplicate_generic'] = 'Document already exists in Paperless.';
+$labels['save_pending']           = '"%s" was handed to Paperless (processing).';
+$labels['save_pending_generic']   = 'Handed to Paperless (processing).';
+$labels['save_failed']            = '"%s" could not be saved to Paperless.';
+$labels['save_failed_generic']    = 'Attachment could not be saved to Paperless.';
+$labels['save_too_large']         = '"%s" is too large to upload to Paperless.';
+$labels['save_no_token']          = 'No valid Paperless token. Please configure it in Settings.';
+
 $messages = [];
