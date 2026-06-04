@@ -29,6 +29,9 @@ never sees the token or the base URL. PHP 7.4+.
   when a native quirk only reproduces under real events.
 - **Releases:** never `git tag` by hand. Commits are Conventional Commits; release-please opens a
   release PR on `main` — merging it tags `vX.Y.Z` and publishes to Packagist. See `CONTRIBUTING.md`.
+- **⚠️ Docs are part of done.** Every feature/behavior change updates **`README.md`** (user-facing)
+  AND **this file** (architecture + gotchas) in the **same commit** — never ship code and leave the
+  docs as a follow-up.
 
 ## Architecture (the parts that span files)
 
