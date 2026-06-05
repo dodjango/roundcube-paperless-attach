@@ -1,6 +1,7 @@
 # Paperless Attach
 
 [![Release](https://img.shields.io/github/v/release/dodjango/roundcube-paperless-attach?sort=semver)](https://github.com/dodjango/roundcube-paperless-attach/releases)
+[![Tests](https://github.com/dodjango/roundcube-paperless-attach/actions/workflows/tests.yml/badge.svg)](https://github.com/dodjango/roundcube-paperless-attach/actions/workflows/tests.yml)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 ![Roundcube 1.6.x](https://img.shields.io/badge/Roundcube-1.6.x-37beff)
 ![Paperless-ngx](https://img.shields.io/badge/Paperless--ngx-API-17541f)
@@ -73,6 +74,8 @@ In daily use on the author's self-hosted stack. Best-effort community plugin (no
 ## Contributing & releases
 
 [Conventional Commits](https://www.conventionalcommits.org/) + [Semantic Versioning](https://semver.org/), released automatically via [release-please](https://github.com/googleapis/release-please). See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+
+**Tests:** a PHPUnit suite covers the server-side Paperless client (`lib/PaperlessClient.php`) — run `composer install && composer test`. CI runs it on PHP 7.4 / 8.0 / 8.1.
 
 ## Out of scope (v2)
 

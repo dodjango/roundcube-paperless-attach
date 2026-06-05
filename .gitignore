@@ -5,12 +5,18 @@ config.inc.php
 /vendor/
 composer.lock
 
+# PHPUnit
+.phpunit.result.cache
+
 # Editor / OS cruft
 *.swp
 *~
 .DS_Store
 .idea/
 .vscode/
+
+# Claude Code local settings
+.claude/
 
 # Playwright MCP scratch output (headless UI checks)
 .playwright-mcp/

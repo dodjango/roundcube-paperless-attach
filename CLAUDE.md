@@ -20,8 +20,19 @@ never sees the token or the base URL. PHP 7.4+.
   `/var/www/html/plugins/paperless_attach`, enable it via `ROUNDCUBEMAIL_PLUGINS`, then
   edit → sync files → recreate the container (opcache `validate_timestamps` picks changes up;
   recreating is the reliable way). See `README.md` for the compose/env setup.
-- **No automated test suite.** Verify functionally: *Settings → Paperless → Test connection* (green ✓),
-  then compose → *Attach from Paperless* → pick → *Send* → confirm the recipient actually receives the PDF.
+- **Tests:** `composer install && composer test` (PHPUnit). Without a local PHP, run pinned:
+  `docker run --rm -v "$PWD":/app -w /app composer:2 install` then
+  `docker run --rm -v "$PWD":/app -w /app php:8.0-cli php vendor/bin/phpunit`. Covers
+  **`lib/PaperlessClient.php`** logic (id validation, status→reason + duplicate mapping, task-UUID
+  parsing, `download`/`upload` cleanup, `listAll` pagination + `toLocalPath` SSRF reduction) — the
+  three wire transports (`request` / `uploadTransport` / `downloadTransport`) are **protected seams**
+  a test subclass overrides with canned responses (no network). `composer.json` pins
+  `config.platform.php=7.4` so deps resolve to PHPUnit 9.x; **never deploy `vendor/`/`tests/` to the
+  live plugin** (it would add Guzzle and flip the transport path — exclude them from the rsync).
+- **`paperless_attach.php` is not unit-tested** (it extends `rcube_plugin`, needs the Roundcube
+  runtime). Verify it functionally: *Settings → Paperless → Test connection* (green ✓); compose →
+  *Attach from Paperless* → pick → *Send* → recipient receives the PDF; and on a received mail →
+  *Save to Paperless* → confirm the document lands in Paperless.
 - **Headless UI check (no login):** build a throwaway repro HTML that loads the real
   `skins/elastic/paperless.css` + Elastic `--color-*` var stand-ins and a copy of the relevant markup,
   serve with `python3 -m http.server`, then render / measure / screenshot via the Playwright MCP

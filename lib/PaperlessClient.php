@@ -258,16 +258,39 @@ class PaperlessClient
         $id  = $this->validateId($id);
         $url = $this->baseUrl . '/api/documents/' . $id . '/download/';
 
-        // NOTE: do NOT send `Accept: application/pdf` here. Paperless-ngx runs DRF
-        // content negotiation on this endpoint and answers a restrictive
-        // `application/pdf` Accept with HTTP 406 Not Acceptable (writing a tiny JSON
-        // error body instead of the file). `*/*` lets it serve the archive PDF (200).
+        $status = $this->downloadTransport($url, $destPath);
+
+        // A truncated attachment must never enter the compose: require a clean 200
+        // AND a non-empty file, else unlink the (possibly partial) output.
+        if ($status !== 200 || !is_file($destPath) || filesize($destPath) <= 0) {
+            @unlink($destPath);
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Wire transport for download(): stream a GET straight to `$destPath` and
+     * return the HTTP status (0 on any transport failure). Redirects off,
+     * connect/read timeouts set. Seamed out (protected) so tests can drive
+     * download()'s status/file-cleanup logic without real network I/O.
+     *
+     * NOTE: do NOT send `Accept: application/pdf`. Paperless-ngx runs DRF content
+     * negotiation here and answers a restrictive Accept with HTTP 406 (a tiny JSON
+     * error body instead of the file). A wildcard Accept lets it serve the archive
+     * PDF (200).
+     *
+     * @param string $url
+     * @param string $destPath
+     * @return int HTTP status, or 0 on transport failure
+     */
+    protected function downloadTransport(string $url, string $destPath): int
+    {
         $headers = [
             'Authorization' => 'Token ' . $this->token,
             'Accept'        => '*/*',
         ];
-
-        $status = 0;
 
         if (class_exists('\\GuzzleHttp\\Client')) {
             try {
@@ -284,60 +307,46 @@ class PaperlessClient
                     'sink'    => $destPath,
                 ]);
 
-                $status = (int) $response->getStatusCode();
+                return (int) $response->getStatusCode();
             }
             catch (\Throwable $e) {
-                @unlink($destPath);
-                return false;
+                return 0;
             }
         }
-        else {
-            $ch = curl_init();
-            if ($ch === false) {
-                @unlink($destPath);
-                return false;
-            }
 
-            $fp = @fopen($destPath, 'w');
-            if ($fp === false) {
-                curl_close($ch);
-                @unlink($destPath);
-                return false;
-            }
+        $ch = curl_init();
+        if ($ch === false) {
+            return 0;
+        }
 
-            $headerLines = [];
-            foreach ($headers as $name => $value) {
-                $headerLines[] = $name . ': ' . $value;
-            }
-
-            curl_setopt_array($ch, [
-                CURLOPT_URL            => $url,
-                CURLOPT_HTTPHEADER     => $headerLines,
-                // Stream to the file handle; do NOT set CURLOPT_RETURNTRANSFER.
-                CURLOPT_FILE           => $fp,
-                CURLOPT_FOLLOWLOCATION => false,
-                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-                CURLOPT_TIMEOUT        => self::TIMEOUT,
-            ]);
-
-            $ok     = curl_exec($ch);
-            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
+        $fp = @fopen($destPath, 'w');
+        if ($fp === false) {
             curl_close($ch);
-            fclose($fp);
-
-            if ($ok === false) {
-                @unlink($destPath);
-                return false;
-            }
+            return 0;
         }
 
-        if ($status !== 200 || !is_file($destPath) || filesize($destPath) <= 0) {
-            @unlink($destPath);
-            return false;
+        $headerLines = [];
+        foreach ($headers as $name => $value) {
+            $headerLines[] = $name . ': ' . $value;
         }
 
-        return true;
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_HTTPHEADER     => $headerLines,
+            // Stream to the file handle; do NOT set CURLOPT_RETURNTRANSFER.
+            CURLOPT_FILE           => $fp,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+            CURLOPT_TIMEOUT        => self::TIMEOUT,
+        ]);
+
+        $ok     = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+        curl_close($ch);
+        fclose($fp);
+
+        return $ok === false ? 0 : $status;
     }
 
     /**
@@ -368,10 +377,42 @@ class PaperlessClient
             return null;
         }
 
-        $url    = $this->baseUrl . '/api/documents/post_document/';
-        $status = 0;
-        $body   = '';
+        $url = $this->baseUrl . '/api/documents/post_document/';
 
+        $res = $this->uploadTransport($url, $path, $filename, $mimetype, $title);
+
+        if ((int) $res['status'] !== 200) {
+            return null;
+        }
+
+        // The body is the task UUID as a JSON string, e.g. "\"f1d2…\"". Decode if
+        // it is valid JSON, otherwise fall back to trimming surrounding quotes.
+        $body    = (string) $res['body'];
+        $decoded = json_decode($body, true);
+        $taskId  = is_string($decoded) ? $decoded : trim($body, " \t\n\r\0\x0B\"");
+
+        $taskId = trim((string) $taskId);
+
+        return $taskId !== '' ? $taskId : null;
+    }
+
+    /**
+     * Wire transport for uploadDocument(): POST the file as multipart/form-data
+     * and return only `{status, body}` (status 0 on any transport failure).
+     * Redirects off, connect/upload timeouts set, wildcard Accept (406 otherwise).
+     * The file streams from disk (Guzzle: a handle; cURL: CURLFile) — never
+     * buffered whole in PHP. Seamed out (protected) so tests can drive
+     * uploadDocument()'s UUID parsing without real network I/O.
+     *
+     * @param string      $url
+     * @param string      $path
+     * @param string      $filename
+     * @param string      $mimetype
+     * @param string|null $title
+     * @return array{status: int, body: string}
+     */
+    protected function uploadTransport(string $url, string $path, string $filename, string $mimetype, ?string $title): array
+    {
         if (class_exists('\\GuzzleHttp\\Client')) {
             try {
                 $client = new \GuzzleHttp\Client([
@@ -399,62 +440,52 @@ class PaperlessClient
                     'multipart' => $multipart,
                 ]);
 
-                $status = (int) $response->getStatusCode();
-                $body   = (string) $response->getBody();
+                return [
+                    'status' => (int) $response->getStatusCode(),
+                    'body'   => (string) $response->getBody(),
+                ];
             }
             catch (\Throwable $e) {
-                return null;
-            }
-        }
-        else {
-            $ch = curl_init();
-            if ($ch === false) {
-                return null;
-            }
-
-            // CURLOPT_POSTFIELDS as an array makes cURL set the multipart
-            // Content-Type + boundary itself — do NOT add a manual Content-Type.
-            $post = ['document' => new \CURLFile($path, $mimetype, $filename)];
-            if ($title !== null && $title !== '') {
-                $post['title'] = $title;
-            }
-
-            curl_setopt_array($ch, [
-                CURLOPT_URL            => $url,
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => $post,
-                CURLOPT_HTTPHEADER     => [
-                    'Authorization: Token ' . $this->token,
-                    'Accept: */*',
-                ],
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => false,
-                CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
-                CURLOPT_TIMEOUT        => self::UPLOAD_TIMEOUT,
-            ]);
-
-            $body   = curl_exec($ch);
-            $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-
-            curl_close($ch);
-
-            if ($body === false) {
-                return null;
+                return ['status' => 0, 'body' => ''];
             }
         }
 
-        if ($status !== 200) {
-            return null;
+        $ch = curl_init();
+        if ($ch === false) {
+            return ['status' => 0, 'body' => ''];
         }
 
-        // The body is the task UUID as a JSON string, e.g. "\"f1d2…\"". Decode if
-        // it is valid JSON, otherwise fall back to trimming surrounding quotes.
-        $decoded = json_decode((string) $body, true);
-        $taskId  = is_string($decoded) ? $decoded : trim((string) $body, " \t\n\r\0\x0B\"");
+        // CURLOPT_POSTFIELDS as an array makes cURL set the multipart
+        // Content-Type + boundary itself — do NOT add a manual Content-Type.
+        $post = ['document' => new \CURLFile($path, $mimetype, $filename)];
+        if ($title !== null && $title !== '') {
+            $post['title'] = $title;
+        }
 
-        $taskId = trim((string) $taskId);
+        curl_setopt_array($ch, [
+            CURLOPT_URL            => $url,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $post,
+            CURLOPT_HTTPHEADER     => [
+                'Authorization: Token ' . $this->token,
+                'Accept: */*',
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+            CURLOPT_TIMEOUT        => self::UPLOAD_TIMEOUT,
+        ]);
 
-        return $taskId !== '' ? $taskId : null;
+        $body   = curl_exec($ch);
+        $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+
+        curl_close($ch);
+
+        if ($body === false) {
+            return ['status' => 0, 'body' => ''];
+        }
+
+        return ['status' => $status, 'body' => (string) $body];
     }
 
     /**
@@ -617,7 +648,7 @@ class PaperlessClient
      * @param string $path   Absolute path beginning with '/'
      * @return array{status: int, body: string, content_type: string}
      */
-    private function request(string $method, string $path): array
+    protected function request(string $method, string $path): array
     {
         $url = $this->baseUrl . $path;
 
