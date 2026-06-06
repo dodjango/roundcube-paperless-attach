@@ -12,9 +12,10 @@ never sees the token or the base URL. PHP 7.4+.
 
 ## Commands
 
-- **Lint PHP:** `php -l paperless_attach.php` (and `lib/PaperlessClient.php`). If PHP isn't on the
-  host, run it inside the Roundcube container:
-  `docker compose exec -T <service> php -l /var/www/html/plugins/paperless_attach/paperless_attach.php`.
+- **Lint PHP:** `php -l paperless_attach.php` (and `lib/PaperlessClient.php`, `lib/PaperlessHelpers.php`).
+  No host PHP? Pipe the WORKING-TREE file via stdin:
+  `docker compose exec -T <service> php -l < paperless_attach.php`. Do NOT `php -l` the *in-container
+  path* — that's the separate rsync'd deploy copy, so it lints STALE code (false pass after an edit).
 - **Lint JS:** `node --check js/paperless.js` — syntax check without PHP/Roundcube.
 - **Dev loop:** bind-mount the plugin into a Roundcube 1.6 container at
   `/var/www/html/plugins/paperless_attach`, enable it via `ROUNDCUBEMAIL_PLUGINS`, then
@@ -105,6 +106,9 @@ glue — colours/spacing come from Elastic `var(--color-*)` tokens (no hex liter
 - **Tags `<select multiple>` scroll:** mutating `option.selected` makes the browser *async*-scroll to
   the first selected option (and a button-held drag over options auto-scrolls). `js/paperless.js` pins
   `scrollTop` on option-mousedown until mouseup — keep that guard; a plain sync restore is not enough.
+- **`*/` inside a docblock ends it early.** `*/*` (e.g. an `Accept: */*` note) in a `/** … */` block
+  closes the comment → "unexpected '*'" parse error. Reword in docblocks (e.g. "a wildcard Accept");
+  it's fine in `//` comments and string literals.
 - **⚠️ Message-view UI must be BODY-injected, not asset-included.** The Elastic preview pane loads the
   message as `_action=preview&_framed=1`, and Roundcube then **strips all plugin scripts + the plugin
   `<head>`** (`rcmail_output_html`: `scripts=[]; header=''`). So the Save-to-Paperless UI is injected as
