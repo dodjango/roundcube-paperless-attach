@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to semantic versioning.
 
+## [1.2.1](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.2.0...v1.2.1) (2026-06-06)
+
+
+### Documentation
+
+* capture lint-via-stdin and docblock `*/` gotchas in CLAUDE.md ([75306a3](https://github.com/dodjango/roundcube-paperless-attach/commit/75306a34ec56ed61fdfcf93b2e5e1b954cddf41f))
+* document save-to-Paperless for received attachments ([8ff889a](https://github.com/dodjango/roundcube-paperless-attach/commit/8ff889a404dc4d503d5c1d5f0592f590eca2587a))
+* make "docs are part of done" a release checklist item ([631b0d9](https://github.com/dodjango/roundcube-paperless-attach/commit/631b0d9c56afc0a4c0f63e49d6269b66f76f6035))
+
 ## [1.2.0](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.1.0...v1.2.0) (2026-06-04)
 
 
