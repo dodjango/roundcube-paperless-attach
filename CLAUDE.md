@@ -26,13 +26,16 @@ never sees the token or the base URL. PHP 7.4+.
   **`lib/PaperlessClient.php`** logic (id validation, status→reason + duplicate mapping, task-UUID
   parsing, `download`/`upload` cleanup, `listAll` pagination + `toLocalPath` SSRF reduction) — the
   three wire transports (`request` / `uploadTransport` / `downloadTransport`) are **protected seams**
-  a test subclass overrides with canned responses (no network). `composer.json` pins
-  `config.platform.php=7.4` so deps resolve to PHPUnit 9.x; **never deploy `vendor/`/`tests/` to the
-  live plugin** (it would add Guzzle and flip the transport path — exclude them from the rsync).
+  a test subclass overrides with canned responses (no network) — and **`lib/PaperlessHelpers.php`**
+  (byte-shorthand parsing, human sizes, filename/title sanitisation, and the consume-task
+  status/duplicate mapping). `composer.json` pins `config.platform.php=7.4` so deps resolve to
+  PHPUnit 9.x; **never deploy `vendor/`/`tests/` to the live plugin** (it would add Guzzle and flip
+  the transport path — exclude them from the rsync).
 - **`paperless_attach.php` is not unit-tested** (it extends `rcube_plugin`, needs the Roundcube
-  runtime). Verify it functionally: *Settings → Paperless → Test connection* (green ✓); compose →
-  *Attach from Paperless* → pick → *Send* → recipient receives the PDF; and on a received mail →
-  *Save to Paperless* → confirm the document lands in Paperless.
+  runtime) — its pure logic was extracted to `lib/PaperlessHelpers.php` (tested) and the plugin
+  delegates to it. Verify the remaining glue functionally (see `CONTRIBUTING.md`'s smoke test):
+  *Settings → Test connection* (green ✓); compose → *Attach from Paperless* → *Send* → recipient gets
+  the PDF; received mail → *Save to Paperless* → document lands in Paperless (repeat → already exists).
 - **Headless UI check (no login):** build a throwaway repro HTML that loads the real
   `skins/elastic/paperless.css` + Elastic `--color-*` var stand-ins and a copy of the relevant markup,
   serve with `python3 -m http.server`, then render / measure / screenshot via the Playwright MCP

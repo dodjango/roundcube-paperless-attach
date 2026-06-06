@@ -32,7 +32,7 @@ and triggers a **major** bump (`2.0.0`):
 feat(api)!: drop support for legacy /fetch URLs
 ```
 
-Good scopes are areas of the plugin, e.g. `picker`, `settings`, `attach`, `client`, `skin`.
+Good scopes are areas of the plugin, e.g. `picker`, `settings`, `attach`, `save`, `client`, `skin`.
 
 Examples:
 
@@ -61,8 +61,40 @@ You therefore never run `git tag` by hand — just write good commits and merge 
 
 ## Local checks
 
-Please run a PHP lint over changed PHP before opening a PR:
+Before opening a PR, run the automated suite and the lints:
 
 ```bash
+composer install        # once; pulls PHPUnit (dev)
+composer test           # PHPUnit — covers lib/PaperlessClient.php + lib/PaperlessHelpers.php
+
 php -l paperless_attach.php
+php -l lib/PaperlessClient.php
+node --check js/paperless.js
 ```
+
+No local PHP/Composer? Run them in pinned containers:
+
+```bash
+docker run --rm -v "$PWD":/app -w /app composer:2 install
+docker run --rm -v "$PWD":/app -w /app php:8.0-cli php vendor/bin/phpunit
+```
+
+CI (`.github/workflows/tests.yml`) runs the same on PHP 7.4 / 8.0 / 8.1 for every push and PR.
+
+## Manual smoke test (before merging a release PR)
+
+The automated tests cover the pure/server-side logic; the parts wired into the Roundcube runtime
+(`paperless_attach.php`) and the real end-to-end flow can only be checked by hand. Against a running
+Roundcube + Paperless, confirm:
+
+1. **Settings → Paperless → Test connection** → green ✓ (and the no-token / bad-token messages when
+   the token is missing/wrong).
+2. **Attach from Paperless:** compose → *Attach from Paperless* → search/filter → pick → *Send* →
+   the recipient actually receives the PDF.
+3. **Save to Paperless:** open a received mail with an attachment → the per-attachment button (and the
+   button in the attachment **preview** toolbar after *Open*) → toast goes *uploading → processing →
+   saved ✓*; the document appears in Paperless. Repeat the same attachment → **already exists**.
+4. **No secrets leak:** the API token / Paperless URL never appear in `rcmail.env`, page source, or
+   any AJAX response.
+
+For skin/layout changes, also do the headless UI check described in `CLAUDE.md`.

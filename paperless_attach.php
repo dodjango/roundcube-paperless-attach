@@ -12,6 +12,8 @@
  *
  * @license GPL-3.0+
  */
+require_once __DIR__ . '/lib/PaperlessHelpers.php';
+
 class paperless_attach extends rcube_plugin
 {
     /**
@@ -890,16 +892,7 @@ class paperless_attach extends rcube_plugin
      */
     private function human_size(int $bytes): string
     {
-        if ($bytes <= 0) {
-            return '';
-        }
-        if ($bytes < 1024) {
-            return $bytes . ' B';
-        }
-        if ($bytes < 1024 * 1024) {
-            return round($bytes / 1024) . ' KB';
-        }
-        return round($bytes / (1024 * 1024), 1) . ' MB';
+        return PaperlessHelpers::humanSize($bytes);
     }
 
     /**
@@ -959,28 +952,7 @@ class paperless_attach extends rcube_plugin
      */
     private function parse_php_bytes(string $val): int
     {
-        $val = trim($val);
-
-        if ($val === '' || $val === '-1') {
-            return 0;
-        }
-
-        $last = strtolower($val[strlen($val) - 1]);
-        $num  = (int) $val;
-
-        switch ($last) {
-            case 'g':
-                $num *= 1024 * 1024 * 1024;
-                break;
-            case 'm':
-                $num *= 1024 * 1024;
-                break;
-            case 'k':
-                $num *= 1024;
-                break;
-        }
-
-        return $num > 0 ? $num : 0;
+        return PaperlessHelpers::parseBytes($val);
     }
 
     /**
@@ -1489,18 +1461,7 @@ class paperless_attach extends rcube_plugin
      */
     private function sanitize_pdf_name(string $title): string
     {
-        $base = preg_replace('/[\\/\\\\:*?"<>|\\x00-\\x1F]+/', '_', $title);
-        $base = trim((string) $base);
-
-        if ($base === '') {
-            $base = 'document';
-        }
-
-        if (strlen($base) > 200) {
-            $base = substr($base, 0, 200);
-        }
-
-        return $base . '.pdf';
+        return PaperlessHelpers::sanitizePdfName($title);
     }
 
     // =====================================================================
@@ -1671,23 +1632,9 @@ class paperless_attach extends rcube_plugin
             return;
         }
 
-        $upstream = $task['status'];
-        $result   = strtolower($task['result']);
-
-        if ($upstream === 'SUCCESS') {
-            $status = 'success';
-        }
-        elseif ($upstream === 'FAILURE') {
-            // Paperless reports duplicates as a failed task whose result names the
-            // existing document ("…is a duplicate of…" / "already exists").
-            $status = (strpos($result, 'duplicate') !== false || strpos($result, 'already exists') !== false)
-                ? 'duplicate'
-                : 'failure';
-        }
-        else {
-            // PENDING / STARTED / RETRY / empty → still in progress.
-            $status = 'pending';
-        }
+        // Map the Celery state + result text to our coarse outcome (incl.
+        // Paperless's duplicate-as-failed-task convention) — see PaperlessHelpers.
+        $status = PaperlessHelpers::mapTaskStatus((string) $task['status'], (string) $task['result']);
 
         $this->send_task_result([
             'status'           => $status,
@@ -1763,9 +1710,6 @@ class paperless_attach extends rcube_plugin
      */
     private function title_from_filename(string $filename): string
     {
-        $base = preg_replace('/\.[A-Za-z0-9]{1,8}$/', '', $filename);
-        $base = trim((string) $base);
-
-        return $base !== '' ? $base : $filename;
+        return PaperlessHelpers::titleFromFilename($filename);
     }
 }
