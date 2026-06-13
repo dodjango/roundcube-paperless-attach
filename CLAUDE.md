@@ -128,9 +128,12 @@ glue — colours/spacing come from Elastic `var(--color-*)` tokens (no hex liter
 
 - Conventional Commits + SemVer; meaningful scopes (`picker`, `settings`, `attach`, `save`, `client`,
   `skin`). release-please owns versioning.
-- **PR merges:** repo auto-merge is OFF (`gh pr merge --auto` fails) — use `gh pr merge N --squash`.
-  Stacked Dependabot PRs on the same file conflict after the first merge: comment
-  `@dependabot rebase`, wait for green CI, then merge the next.
+- **PR merges:** repo auto-merge is ON. `main` requires the 4 status checks (`PHPUnit (PHP 7.4/
+  8.0/8.1)` + `JS syntax check`) — no required review (so the solo maintainer isn't blocked by the
+  can't-self-approve rule), `enforce_admins` off (direct admin pushes to `main` still allowed),
+  `strict` off (PR need not be up to date). Queue a PR with `gh pr merge N --squash --auto` and it
+  lands when CI goes green. Stacked Dependabot PRs on the same file still conflict after the first
+  merge — auto-merge just waits: comment `@dependabot rebase`, let CI go green, the next one merges.
 - `composer.json` carries **no** `version` field (Packagist derives it from git tags).
 - Packagist package is **`dodjango/paperless_attach`** (from composer.json `name`), **not** the repo
   name `roundcube-paperless-attach`. The name's second segment **must** equal the plugin dir
