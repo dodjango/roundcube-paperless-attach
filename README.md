@@ -14,6 +14,8 @@ token is stored **encrypted** and all Paperless traffic stays **server-side**.
 
 ![Paperless picker dialog with search, filters and results](docs/screenshots/picker-dialog.png)
 
+![End-to-end demo: searching Paperless from compose, picking a document, and attaching it](docs/screenshots/demo.gif)
+
 ## Features
 
 - 🔍 Search + filter your documents — full-text, tags, correspondent, document type, date range — and multi-select across pages.
