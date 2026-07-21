@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to semantic versioning.
 
+## [1.2.2](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.2.1...v1.2.2) (2026-07-21)
+
+
+### Documentation
+
+* add end-to-end demo gif to README ([64b069c](https://github.com/dodjango/roundcube-paperless-attach/commit/64b069cc38d92c0a2499bcb4cb63c11bba209466))
+* document enabled repo auto-merge and the main merge gate ([c9838df](https://github.com/dodjango/roundcube-paperless-attach/commit/c9838df532462f03166b2802ccacf5d9d6554e7a))
+* note repo auto-merge is off and how to merge stacked Dependabot PRs ([f3d2004](https://github.com/dodjango/roundcube-paperless-attach/commit/f3d200405a77a69ee514053729acbde6b8f9622d))
+
 ## [1.2.1](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.2.0...v1.2.1) (2026-06-06)
 
 
