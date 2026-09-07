@@ -3,6 +3,13 @@
 All notable changes to this project are documented here. The format is loosely based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to semantic versioning.
 
+## [1.2.3](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.2.2...v1.2.3) (2026-09-07)
+
+
+### Bug Fixes
+
+* **attach:** store compose attachments in Roundcube 1.7's uploads table ([#10](https://github.com/dodjango/roundcube-paperless-attach/issues/10)) ([8a28c4e](https://github.com/dodjango/roundcube-paperless-attach/commit/8a28c4eadc07a0a80ef72d9b22d3445e96d9165b))
+
 ## [1.2.2](https://github.com/dodjango/roundcube-paperless-attach/compare/v1.2.1...v1.2.2) (2026-07-21)
 
 
