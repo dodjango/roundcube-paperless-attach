@@ -6,9 +6,10 @@
  * The plugin class (`paperless_attach`) extends `rcube_plugin` and cannot be
  * loaded outside the Roundcube runtime, which makes its logic awkward to test.
  * The genuinely pure bits — byte-shorthand parsing, human sizes, filename/title
- * sanitisation, and the async consume-task status mapping (incl. Paperless's
- * duplicate detection) — live here instead as static methods so they can be unit
- * tested directly. The plugin delegates to them; behaviour is unchanged.
+ * sanitisation, the async consume-task status mapping (incl. Paperless's
+ * duplicate detection), and the compose-attachment storage-path selection —
+ * live here instead as static methods so they can be unit tested directly.
+ * The plugin delegates to them; behaviour is unchanged.
  *
  * @license GPL-3.0+
  */
@@ -141,5 +142,50 @@ class PaperlessHelpers
         }
 
         return 'pending';
+    }
+
+    /**
+     * Does this Roundcube core own compose attachments in the `uploads` DB table?
+     *
+     * Roundcube 1.7 moved compose-attachment bookkeeping out of
+     * `$_SESSION['compose_data_<id>']['attachments']` and into a `uploads`
+     * table fronted by the `rcube_uploads` trait. Every consumer now reads
+     * `list_uploaded_files($group)` — send.php (what actually gets sent),
+     * compose.php (the attachment list, the `max_message_size` accounting) and
+     * `filesystem_attachments::cleanup()` (unlinking the temp files). A row that
+     * exists only in the session is invisible to all of them.
+     *
+     * `insert_uploaded_file()` is the trait's writer and is the reliable feature
+     * probe: absent on 1.6.x, present from 1.7 on.
+     *
+     * @param object $rcmail the rcmail instance
+     * @return bool true on Roundcube 1.7+ (uploads table), false on 1.6.x (session)
+     */
+    public static function usesUploadsTable($rcmail): bool
+    {
+        return is_object($rcmail) && method_exists($rcmail, 'insert_uploaded_file');
+    }
+
+    /**
+     * Build the session row for the LEGACY (Roundcube 1.6.x) storage path.
+     *
+     * Mirrors compose.php's own handling: drop the transient keys that must not
+     * be persisted, then mark the row so the `message_ready` hook can re-attach
+     * the document at send time (see `paperless_attach::attach_at_send()` — on
+     * 1.6.x a slow attach request makes core miss the attachment otherwise).
+     *
+     * Only used on 1.6.x; on 1.7+ core persists the descriptor itself and the
+     * marker must NOT be set, or the document would be attached twice.
+     *
+     * @param array $att descriptor as returned by the `attachment_save` hook
+     * @return array the row to session-append
+     */
+    public static function legacyAttachmentRow(array $att): array
+    {
+        unset($att['data'], $att['status'], $att['content_id'], $att['abort']);
+
+        $att['paperless'] = true;
+
+        return $att;
     }
 }
