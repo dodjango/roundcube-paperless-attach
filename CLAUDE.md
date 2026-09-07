@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Roundcube 1.6.x (Elastic skin **only**) plugin that attaches documents from a Paperless-ngx
+A Roundcube 1.6.x / 1.7.x (Elastic skin **only**) plugin that attaches documents from a Paperless-ngx
 instance directly in the mail compose window. It also goes the **other way**: attachments on a
 **received** message can be uploaded straight into Paperless from the message view. The per-user
 Paperless API token is stored encrypted and **all** Paperless traffic is server-side — the browser
@@ -28,8 +28,9 @@ never sees the token or the base URL. PHP 7.4+.
   parsing, `download`/`upload` cleanup, `listAll` pagination + `toLocalPath` SSRF reduction) — the
   three wire transports (`request` / `uploadTransport` / `downloadTransport`) are **protected seams**
   a test subclass overrides with canned responses (no network) — and **`lib/PaperlessHelpers.php`**
-  (byte-shorthand parsing, human sizes, filename/title sanitisation, and the consume-task
-  status/duplicate mapping). `composer.json` pins `config.platform.php=7.4` so deps resolve to
+  (byte-shorthand parsing, human sizes, filename/title sanitisation, the consume-task
+  status/duplicate mapping, and the `usesUploadsTable` / `legacyAttachmentRow` storage-path split
+  between RC 1.6.x and 1.7+). `composer.json` pins `config.platform.php=7.4` so deps resolve to
   PHPUnit 9.x; **never deploy `vendor/`/`tests/` to the live plugin** (it would add Guzzle and flip
   the transport path — exclude them from the rsync).
 - **`paperless_attach.php` is not unit-tested** (it extends `rcube_plugin`, needs the Roundcube
@@ -67,19 +68,34 @@ points: a per-attachment inline button (injected by the `template_object_message
 `attachment_save_links()`) and a button in the attachment-preview toolbar (`template_container` hook on
 `messagepart.html`'s `toolbar`, `preview_toolbar_button()`).
 
-**⚠️ Attach-at-send is load-bearing — do not remove or "simplify" it.** Attaching a Paperless doc
-downloads its PDF server-side, so the compose request runs >0.5s. That trips
+**⚠️ Attachment storage is version-split — `inject_attachment()` has TWO persistence paths.**
+Both drive the `attachment_save` hook with a temp-file `path` (`data => null`), then diverge on
+`PaperlessHelpers::usesUploadsTable($rcmail)` (probes `method_exists($rcmail,
+'insert_uploaded_file')`):
+
+- **RC 1.7+** — core moved compose attachments out of the session into a `uploads` DB table
+  (`program/lib/Roundcube/rcube_uploads.php`). `$rcmail->insert_uploaded_file($att,
+  'attachment_save')` runs the hook **and** writes the row, so it replaces the whole step — do NOT
+  also call `exec_hook('attachment_save')` (that stores the file twice). Everything core does now
+  reads `list_uploaded_files($group)`: `send.php` (what actually gets sent), the compose attachment
+  list, the `max_message_size` accounting, remove-attachment, and
+  `filesystem_attachments::cleanup()` (temp-file unlink). A session-only row is invisible to all
+  five — that was the 1.7 regression this split fixes.
+- **RC 1.6.x** — no uploads table; `PaperlessHelpers::legacyAttachmentRow()` strips the transient
+  keys, marks `paperless => true`, and `$rcmail->session->append('compose_data_<id>.attachments',
+  $id, $att)` persists it — the same path native uploads use there.
+
+**⚠️ Attach-at-send is load-bearing on 1.6.x — do not remove or "simplify" it.** Attaching a
+Paperless doc downloads its PDF server-side, so the compose request runs >0.5s. That trips
 `rcube_session::reload()`, which rebuilds `$_SESSION` and **orphans** `send.php`'s
 `$COMPOSE =& $_SESSION['compose_data_<id>']` reference — so Roundcube's own `add_attachments()` never
-attaches the file (it shows in compose but is missing from the sent mail). The fix:
-`inject_attachment()` marks each descriptor `paperless => true`, and the **`message_ready` hook
-(`attach_at_send()`)** re-attaches every marked document to the outgoing `Mail_mime` at send time,
-reading from the session entry that is reliably present then.
+attaches the file (it shows in compose but is missing from the sent mail). The fix: the
+**`message_ready` hook (`attach_at_send()`)** re-attaches every `paperless`-marked document to the
+outgoing `Mail_mime` at send time, reading from the session entry that is reliably present then.
+On **1.7+** no row is marked, so the hook is a no-op (plus a filename dedup as a second safety net) —
+marking there would attach each document twice.
 
-**Attachment storage mirrors core exactly.** `inject_attachment()` runs
-`exec_hook('attachment_save', …)` (filesystem_attachments) to store the temp file and get an id, then
-`$rcmail->session->append('compose_data_<id>.attachments', $id, $att)` — the same path native uploads
-use. Note `rcmail_action_mail_compose::save_attachment(null, $path, …)` is a **no-op in RC 1.6.6**;
+Note `rcmail_action_mail_compose::save_attachment(null, $path, …)` is a **no-op in RC 1.6.6**;
 don't reach for it.
 
 **Token storage.** `$rcmail->encrypt()` / `decrypt()` (Roundcube `des_key`, 24 chars). The
@@ -102,7 +118,12 @@ glue — colours/spacing come from Elastic `var(--color-*)` tokens (no hex liter
 - **Effective upload limit** = `min(Roundcube upload limit, PHP upload_max_filesize / post_max_size /
   memory_limit)`, parsed with a byte parser — a plain `(int) "15M"` yields 15 *bytes*.
 - **`:latest` drift:** Elastic toolbar/markup and the Paperless API can shift between versions —
-  verify against the running Roundcube/Paperless before relying on internals.
+  verify against the running Roundcube/Paperless before relying on internals. This has bitten once
+  already: the live stack rode `roundcube/roundcubemail:latest` onto **1.7.4**, whose new `uploads`
+  table silently broke attachment removal, draft reload, size accounting and temp-file cleanup while
+  *sending* kept working via the `message_ready` fallback — i.e. no visible error. When core's
+  version moves, diff the subsystems this plugin hooks (`rcube_uploads`, `rcube_session`,
+  compose/send actions), don't just smoke-test the happy path.
 - **Tags `<select multiple>` scroll:** mutating `option.selected` makes the browser *async*-scroll to
   the first selected option (and a button-held drag over options auto-scrolls). `js/paperless.js` pins
   `scrollTop` on option-mousedown until mouseup — keep that guard; a plain sync restore is not enough.

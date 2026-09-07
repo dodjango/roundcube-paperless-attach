@@ -986,26 +986,43 @@ class paperless_attach extends rcube_plugin
     // =====================================================================
     // Phase 3 — Attach injection (shared mechanism + spike + real action).
     //
-    // The injection deliberately replicates the *tail* of the deployed core's
-    // rcmail_action_mail_compose::save_attachment() rather than calling it:
-    // that method's `path`-from-disk form is NON-FUNCTIONAL in this core (its
-    // is_string($message) branch buffers in-memory data, and the null/$path
-    // form silently no-ops). The attachment_upload hook is also unusable for a
-    // server-downloaded file (filesystem_attachments::upload() calls
-    // move_uploaded_file(), which only accepts a genuine HTTP upload). So we
-    // drive the attachment_save HOOK directly with a temp-file `path`
-    // (data => null) and mirror attachment_success()'s add2attachment_list
-    // markup with TWO args (no iframe $uploadid placeholder). Verified against
-    // /srv/eplamat/www/program/actions/mail/{compose.php,attachment_upload.php}.
+    // The injection deliberately does NOT call
+    // rcmail_action_mail_compose::save_attachment(): its `path`-from-disk form
+    // is non-functional (the is_string($message) branch buffers in-memory data,
+    // and the null/$path form silently no-ops). The attachment_upload hook is
+    // likewise unusable for a server-downloaded file
+    // (filesystem_attachments::upload() calls move_uploaded_file(), which only
+    // accepts a genuine HTTP upload). So the temp-file `path` (data => null)
+    // goes through the attachment_save HOOK, and the row renders via
+    // attachment_success()'s add2attachment_list markup mirrored with TWO args
+    // (no iframe $uploadid placeholder).
+    //
+    // ⚠️ The PERSISTENCE step behind that hook differs by core version and is
+    // load-bearing — see inject_attachment(). Roundcube 1.7 moved compose
+    // attachments from the session into the `uploads` DB table
+    // (program/lib/Roundcube/rcube_uploads.php); writing only the session there
+    // leaves the document invisible to send.php, the attachment list, the size
+    // accounting, the remove action and the temp-file cleanup. Verified against
+    // Roundcube 1.7.4 and 1.6.x.
     // =====================================================================
 
     /**
-     * Inject a temp file into the open compose session as a native attachment.
+     * Inject a temp file into the open compose as a native attachment.
      *
-     * Drives the `attachment_save` storage hook with a PATH (never in-memory
-     * data — the PDF is already streamed to disk), session-appends the returned
-     * descriptor to `compose_data_<id>.attachments`, and emits the mirrored
-     * 2-arg `add2attachment_list` so the row renders like a native upload.
+     * Always drives the `attachment_save` storage hook with a PATH (never
+     * in-memory data — the PDF is already streamed to disk) and emits the
+     * mirrored 2-arg `add2attachment_list` so the row renders like a native
+     * upload. WHERE the descriptor is then persisted depends on the core:
+     *
+     *  - **Roundcube 1.7+** — core owns compose attachments in the `uploads` DB
+     *    table. `insert_uploaded_file()` runs the hook AND writes the row, so it
+     *    is the whole persistence step. Every core consumer then sees the
+     *    document: send.php's `list_uploaded_files()`, the compose attachment
+     *    list, the `max_message_size` accounting, the remove-attachment action
+     *    and `filesystem_attachments::cleanup()` (temp-file unlink).
+     *  - **Roundcube 1.6.x** — no uploads table; the row goes into
+     *    `compose_data_<id>.attachments` via `rcube_session::append()` and is
+     *    marked for `attach_at_send()` (see below).
      *
      * @param string $compose_id the compose group id (session key suffix)
      * @param string $path       path to the already-downloaded temp file
@@ -1035,39 +1052,49 @@ class paperless_attach extends rcube_plugin
             'charset'    => null,
         ];
 
-        $att = $rcmail->plugins->exec_hook('attachment_save', $att);
+        if (PaperlessHelpers::usesUploadsTable($rcmail)) {
+            // Roundcube 1.7+ — core's uploads table. insert_uploaded_file() runs
+            // the attachment_save hook itself and INSERTs the resulting row, so
+            // it must NOT be preceded by our own exec_hook() call (that would
+            // store the file twice). $att is by-ref and carries the hook result
+            // — including the storage id — back to us.
+            //
+            // The row must NOT be marked `paperless`: core attaches it from
+            // list_uploaded_files() at send time, and attach_at_send() would
+            // otherwise add the very same document a second time.
+            if (!$rcmail->insert_uploaded_file($att, 'attachment_save')) {
+                // Storage backend or the DB insert rejected it — clean up, don't crash.
+                @unlink($path);
+                return false;
+            }
+        } else {
+            // Roundcube 1.6.x — no uploads table; the session is the store.
+            $att = $rcmail->plugins->exec_hook('attachment_save', $att);
 
-        if (empty($att['status']) || !empty($att['abort'])) {
-            // Storage backend rejected it — clean up the temp file, don't crash.
-            @unlink($path);
-            return false;
+            if (empty($att['status']) || !empty($att['abort'])) {
+                // Storage backend rejected it — clean up the temp file, don't crash.
+                @unlink($path);
+                return false;
+            }
+
+            // Strip the transient keys and mark the row for attach_at_send().
+            $att = PaperlessHelpers::legacyAttachmentRow($att);
+
+            // Persist via rcube_session::append() — the EXACT mechanism 1.6.x core
+            // uses for native uploads (attachment_upload.php:132 / compose.php:1735).
+            //
+            // CRITICAL: append() calls reload() when the request is older than 0.5s
+            // (rcube_session.php:354). Our request always is — we just streamed a PDF
+            // from Paperless. That mid-request reload() rebuilds $_SESSION via
+            // session_decode + array_merge_recursive, which stores the attachment in a
+            // way that, at send time, lands in the $_SESSION superglobal but NOT in
+            // send.php's `$COMPOSE =& $_SESSION['compose_data_<id>']` reference — so
+            // add_attachments() never sees it and the file is missing from the sent mail
+            // (verified: native fast uploads, which never reload, attach fine; ours did
+            // not). Native uploads win only because they finish in <0.5s and skip reload.
+            // The `paperless` marker set above lets attach_at_send() repair that.
+            $rcmail->session->append('compose_data_' . $compose_id . '.attachments', $att['id'], $att);
         }
-
-        // Mirror compose.php: strip transient keys before persisting the row.
-        unset($att['data'], $att['status'], $att['content_id'], $att['abort']);
-
-        // Persist the attachment via rcube_session::append() — the EXACT mechanism
-        // core uses for native uploads (attachment_upload.php:132 / compose.php:1735).
-        //
-        // CRITICAL: append() calls reload() when the request is older than 0.5s
-        // (rcube_session.php:354). Our request always is — we just streamed a PDF
-        // from Paperless. That mid-request reload() rebuilds $_SESSION via
-        // session_decode + array_merge_recursive, which stores the attachment in a
-        // way that, at send time, lands in the $_SESSION superglobal but NOT in
-        // send.php's `$COMPOSE =& $_SESSION['compose_data_<id>']` reference — so
-        // add_attachments() never sees it and the file is missing from the sent mail
-        // (verified: native fast uploads, which never reload, attach fine; ours did
-        // not). Native uploads win only because they finish in <0.5s and skip reload.
-        //
-        // Mark this as a Paperless-injected attachment so the message_ready hook
-        // (attach_at_send) can re-attach it to the outgoing message at send time.
-        // This is the load-bearing path: a slow attach request (PDF download) leaves
-        // the attachment in $_SESSION but NOT in send.php's `$COMPOSE =& $_SESSION[...]`
-        // reference, so core's add_attachments() never attaches it. We add it
-        // ourselves at message_ready, reading from the session entry that IS present.
-        $att['paperless'] = true;
-
-        $rcmail->session->append('compose_data_' . $compose_id . '.attachments', $att['id'], $att);
 
         $this->emit_attachment_row($att);
 
@@ -1349,18 +1376,24 @@ class paperless_attach extends rcube_plugin
     }
 
     /**
-     * message_ready hook — fires in send.php (line ~240) with the fully assembled
-     * outgoing Mail_mime, AFTER core's add_attachments(). Re-attaches every
-     * Paperless-injected document for this compose to the message.
+     * message_ready hook — fires in send.php with the fully assembled outgoing
+     * Mail_mime, AFTER core's add_attachments(). Re-attaches every document this
+     * plugin marked `paperless` in the compose session.
      *
-     * Why this is necessary: when a Paperless attachment is injected during a
-     * compose request that runs longer than 0.5s (it must stream the PDF from
-     * Paperless), rcube_session::reload() rebuilds $_SESSION mid-flight. At send
-     * time the attachment is present in the $_SESSION superglobal but NOT in
-     * send.php's `$COMPOSE =& $_SESSION['compose_data_<id>']` reference, so core's
+     * ⚠️ Roundcube 1.6.x ONLY, and load-bearing there. When a Paperless
+     * attachment is injected during a compose request that runs longer than 0.5s
+     * (it must stream the PDF from Paperless), rcube_session::reload() rebuilds
+     * $_SESSION mid-flight. At send time the attachment is present in the
+     * $_SESSION superglobal but NOT in send.php's
+     * `$COMPOSE =& $_SESSION['compose_data_<id>']` reference, so core's
      * add_attachments() never adds it (verified: native fast uploads attach fine,
      * Paperless ones did not). We read the still-present session entry here and
      * add the file ourselves, deduping by filename against parts core already added.
+     *
+     * On Roundcube 1.7+ core persists the attachment in the `uploads` table and
+     * attaches it itself, so inject_attachment() sets no `paperless` marker and
+     * this hook finds nothing to do — the filename dedup below is a second
+     * safety net against attaching the same document twice.
      *
      * @param array $args ['message' => Mail_mime]
      * @return array

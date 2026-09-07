@@ -8,8 +8,9 @@ require_once __DIR__ . '/../lib/PaperlessHelpers.php';
 
 /**
  * Tests for the pure helpers extracted from the plugin (byte parsing, human
- * sizes, filename/title sanitisation, and the consume-task status mapping incl.
- * Paperless's duplicate detection).
+ * sizes, filename/title sanitisation, the consume-task status mapping incl.
+ * Paperless's duplicate detection, and the compose-attachment storage-path
+ * selection that keeps Roundcube 1.6.x and 1.7+ apart).
  */
 final class PaperlessHelpersTest extends TestCase
 {
@@ -134,5 +135,115 @@ final class PaperlessHelpersTest extends TestCase
         foreach (['PENDING', 'STARTED', 'RETRY', 'RECEIVED', ''] as $state) {
             $this->assertSame('pending', PaperlessHelpers::mapTaskStatus($state, ''), "state '$state'");
         }
+    }
+
+    // ---- usesUploadsTable -------------------------------------------------
+
+    /**
+     * Roundcube 1.7+ exposes rcube_uploads::insert_uploaded_file(); 1.6.x does
+     * not. That method is the feature probe deciding whether the attachment row
+     * is written to the `uploads` DB table or to the compose session.
+     */
+    public function testUsesUploadsTableDetectsRoundcube17(): void
+    {
+        $rc17 = new class {
+            public function insert_uploaded_file(&$data, $hook = null)
+            {
+                return true;
+            }
+        };
+
+        $this->assertTrue(PaperlessHelpers::usesUploadsTable($rc17));
+    }
+
+    public function testUsesUploadsTableDetectsRoundcube16(): void
+    {
+        // 1.6.x rcmail: no uploads table, so no insert_uploaded_file().
+        $rc16 = new class {
+            public function insert_uploaded_file_lookalike()
+            {
+                return true;
+            }
+        };
+
+        $this->assertFalse(PaperlessHelpers::usesUploadsTable($rc16));
+    }
+
+    /**
+     * @dataProvider nonObjects
+     *
+     * @param mixed $value
+     */
+    public function testUsesUploadsTableRejectsNonObjects($value): void
+    {
+        $this->assertFalse(PaperlessHelpers::usesUploadsTable($value));
+    }
+
+    public function nonObjects(): array
+    {
+        return [
+            'null'   => [null],
+            'string' => ['rcmail'],
+            'array'  => [[]],
+            'int'    => [0],
+        ];
+    }
+
+    // ---- legacyAttachmentRow ---------------------------------------------
+
+    public function testLegacyAttachmentRowStripsTransientKeys(): void
+    {
+        $row = PaperlessHelpers::legacyAttachmentRow([
+            'id'         => 'abc123',
+            'group'      => 'compose1',
+            'name'       => 'Invoice.pdf',
+            'mimetype'   => 'application/pdf',
+            'path'       => '/tmp/roundcube-temp/rcmAttmnt123',
+            'size'       => 4096,
+            'charset'    => null,
+            'data'       => 'raw bytes that must not be persisted',
+            'status'     => true,
+            'content_id' => null,
+            'abort'      => false,
+        ]);
+
+        foreach (['data', 'status', 'content_id', 'abort'] as $transient) {
+            $this->assertArrayNotHasKey($transient, $row, "'$transient' must not be persisted");
+        }
+    }
+
+    public function testLegacyAttachmentRowKeepsWhatSendTimeNeeds(): void
+    {
+        $row = PaperlessHelpers::legacyAttachmentRow([
+            'id'       => 'abc123',
+            'group'    => 'compose1',
+            'name'     => 'Invoice.pdf',
+            'mimetype' => 'application/pdf',
+            'path'     => '/tmp/roundcube-temp/rcmAttmnt123',
+            'size'     => 4096,
+            'charset'  => null,
+            'data'     => null,
+            'status'   => true,
+        ]);
+
+        // attach_at_send() reads exactly these off the session row.
+        $this->assertSame('abc123', $row['id']);
+        $this->assertSame('Invoice.pdf', $row['name']);
+        $this->assertSame('application/pdf', $row['mimetype']);
+        $this->assertSame('/tmp/roundcube-temp/rcmAttmnt123', $row['path']);
+        $this->assertSame(4096, $row['size']);
+        $this->assertArrayHasKey('charset', $row);
+    }
+
+    /**
+     * The marker is what makes attach_at_send() pick the row up on 1.6.x. It
+     * must never be set on the 1.7+ path, where core attaches the document
+     * itself and a second attach would duplicate it.
+     */
+    public function testLegacyAttachmentRowMarksRowForSendTimeReattach(): void
+    {
+        $row = PaperlessHelpers::legacyAttachmentRow(['id' => 'x', 'name' => 'a.pdf']);
+
+        $this->assertTrue($row['paperless']);
     }
 }

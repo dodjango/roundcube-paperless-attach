@@ -3,7 +3,7 @@
 [![Release](https://img.shields.io/github/v/release/dodjango/roundcube-paperless-attach?sort=semver)](https://github.com/dodjango/roundcube-paperless-attach/releases)
 [![Tests](https://github.com/dodjango/roundcube-paperless-attach/actions/workflows/tests.yml/badge.svg)](https://github.com/dodjango/roundcube-paperless-attach/actions/workflows/tests.yml)
 [![License: GPL v3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
-![Roundcube 1.6.x](https://img.shields.io/badge/Roundcube-1.6.x-37beff)
+![Roundcube 1.6.x / 1.7.x](https://img.shields.io/badge/Roundcube-1.6.x%20%7C%201.7.x-37beff)
 ![Paperless-ngx](https://img.shields.io/badge/Paperless--ngx-API-17541f)
 
 A Roundcube (Elastic skin) plugin to attach documents from a
@@ -33,7 +33,7 @@ token is stored **encrypted** and all Paperless traffic stays **server-side**.
 
 ## Requirements
 
-Roundcube **1.6.x** · **Elastic** skin only · PHP **7.4+** · a reachable Paperless-ngx instance.
+Roundcube **1.6.x** or **1.7.x** · **Elastic** skin only · PHP **7.4+** · a reachable Paperless-ngx instance.
 
 ## Install
 
@@ -71,7 +71,7 @@ Token encrypted via `rcube::encrypt()` — never stored in DB plaintext, echoed 
 
 ## Status
 
-In daily use on the author's self-hosted stack. Best-effort community plugin (no warranty), so far verified on a single deployment; testing on other Roundcube 1.6.x setups, issues and PRs are very welcome.
+In daily use on the author's self-hosted stack (currently Roundcube 1.7.x). Best-effort community plugin (no warranty), so far verified on a single deployment; testing on other Roundcube 1.6.x / 1.7.x setups, issues and PRs are very welcome.
 
 ## Contributing & releases
 
