@@ -59,6 +59,14 @@ Releases are automated with [release-please](https://github.com/googleapis/relea
 
 You therefore never run `git tag` by hand — just write good commits and merge the release PR.
 
+The release PR is opened by a **GitHub App** (`dodjango-release-please`), not by the default `GITHUB_TOKEN`.
+That is deliberate: GitHub does not let a run authenticated with `GITHUB_TOKEN` trigger further
+workflow runs, so a release PR created that way parks the `tests` run in `action_required` — the four
+required checks never report and the PR cannot be merged without a manual approval every single time.
+The App token makes the PR author a normal actor, so the checks start on their own. It needs two repo
+secrets, `RELEASE_PLEASE_APP_CLIENT_ID` and `RELEASE_PLEASE_APP_PRIVATE_KEY`; if a release PR ever shows no
+checks at all, that is the first thing to look at.
+
 ## Local checks
 
 Before opening a PR, run the automated suite and the lints:
