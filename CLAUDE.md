@@ -45,6 +45,9 @@ never sees the token or the base URL. PHP 7.4+.
   when a native quirk only reproduces under real events.
 - **Releases:** never `git tag` by hand. Commits are Conventional Commits; release-please opens a
   release PR on `main` — merging it tags `vX.Y.Z` and publishes to Packagist. See `CONTRIBUTING.md`.
+  The release PR is opened via a **GitHub App token** (`actions/create-github-app-token`, secrets
+  `RELEASE_PLEASE_APP_CLIENT_ID` / `RELEASE_PLEASE_APP_PRIVATE_KEY`), *not* `GITHUB_TOKEN` — see the gotcha
+  below.
 - **⚠️ Docs are part of done.** Every feature/behavior change updates **`README.md`** (user-facing)
   AND **this file** (architecture + gotchas) in the **same commit** — never ship code and leave the
   docs as a follow-up.
@@ -117,6 +120,15 @@ glue — colours/spacing come from Elastic `var(--color-*)` tokens (no hex liter
   The official Roundcube image bundles **no** Guzzle, so the cURL path is what actually runs.
 - **Effective upload limit** = `min(Roundcube upload limit, PHP upload_max_filesize / post_max_size /
   memory_limit)`, parsed with a byte parser — a plain `(int) "15M"` yields 15 *bytes*.
+- **A release PR with NO checks is the `GITHUB_TOKEN` recursion guard, not a broken workflow.**
+  GitHub refuses to let a run authenticated with `GITHUB_TOKEN` trigger further workflow runs; for the
+  `pull_request` event it parks the run in `action_required` rather than skipping it. The four required
+  checks then never report and the release PR is unmergeable without a manual approval
+  (`gh api -X POST repos/<owner>/<repo>/actions/runs/<id>/approve`) — which is exactly what happened
+  for v1.2.2 and v1.2.3. Fixed by opening the PR with a GitHub App token instead. Diagnose with
+  `gh api repos/<owner>/<repo>/actions/runs/<id>/attempts/1 --jq .conclusion` — the *run list* shows
+  the successful attempt 2 and hides the parked attempt 1, which makes this easy to misread as
+  "it used to work".
 - **`:latest` drift:** Elastic toolbar/markup and the Paperless API can shift between versions —
   verify against the running Roundcube/Paperless before relying on internals. This has bitten once
   already: the live stack rode `roundcube/roundcubemail:latest` onto **1.7.4**, whose new `uploads`

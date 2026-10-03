@@ -5,6 +5,14 @@ name: release-please
 # CHANGELOG.md, and on merge of that PR creates the git tag + GitHub release.
 # Packagist derives the package version from the git tag (composer.json carries
 # no version field), so a new tag is all that's needed downstream.
+#
+# ⚠️ The release PR is deliberately opened with a GitHub App token, NOT the
+# default GITHUB_TOKEN. GitHub refuses to let a run authenticated with
+# GITHUB_TOKEN trigger further workflow runs (recursion guard); for the
+# resulting `pull_request` event it parks the run in `action_required` instead
+# of starting it. The four required status checks would then never report and
+# the release PR could not be merged without a manual approval every time.
+# An App token makes the PR author a normal actor, so `tests` runs on its own.
 
 on:
   push:
@@ -12,14 +20,24 @@ on:
       - main
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # Mints a short-lived (1h) installation token for the release-please
+      # GitHub App. Needs the App's client id + private key as repo secrets; the App
+      # itself is installed on this repo with `contents`, `issues` (labels) and
+      # `pull requests` all read & write.
+      - id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.RELEASE_PLEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
+
       - uses: googleapis/release-please-action@v5
         with:
+          token: ${{ steps.app-token.outputs.token }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
